@@ -23,13 +23,14 @@ export function estimateMin(distM, mode) {
 /**
  * 하루 일정의 도착/출발 시각 계산 (단위: 그날 0시부터의 분)
  * items[i].time: 도착 희망 시각(없으면 자동 계산).
- *   단, 0번은 다음 장소에 시각이 없으면 "출발 시각"으로 봄 (양식: 첫 줄 = 출발 시각)
+ *   단, 0번(그날 첫 장소)의 시각은 언제나 "출발 시각" (양식: 첫 줄 = 출발 시각)
  * legs[i].dur: i-1번 → i번 이동시간
  * actual[i]: 실제 도착/출발 기록 {arr, dep}
  */
 export function computeSchedule(items, legs, actual, buffer = 0) {
   const out = [];
-  const firstIsDeparture = items[0]?.time != null && items[1]?.time == null;
+  // 첫 장소에 적은 시간은 언제나 "출발 시각" (양식·수정 화면 모두 "출발 시간"으로 안내)
+  const firstIsDeparture = items[0]?.time != null && items.length > 1;
   for (let i = 0; i < items.length; i++) {
     const it = items[i], a = actual[i] || {};
     const r = { travel: i > 0 ? (legs[i]?.dur ?? 0) : 0, late: 0, short: 0 };
