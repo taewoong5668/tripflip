@@ -70,6 +70,7 @@ const HEADER_RE = /장소|목적지|place/i;
 // 머리글 줄: 칸이 2개 이상 채워져 있고, 짧은 "장소" 칸이 있는 줄 (제목 문장 속 "장소"는 무시)
 const isHeaderRow = r => r.filter(c => String(c).trim()).length >= 2
   && r.some(c => HEADER_RE.test(String(c)) && String(c).trim().length <= 12);
+const isHotel = s => /호텔|숙소|리조트|게스트하우스|에어비앤비|메리턴|풀러턴|hotel|suites|resort|hostel|airbnb/i.test(s);
 const isFlight = s => /탑승|비행기|항공편|flight|\b[A-Z]{2}\d{2,4}\b/i.test(s);
 
 // 시트 여러 개(날짜별 시트) 또는 하나(전체 일정)를 날짜별 일정으로 합치기
@@ -99,10 +100,13 @@ function sheetsToPlan(sheets) {
   if (!days.size) throw new Error('"장소" 열이 있는 표를 찾지 못했어요');
   const list = [...days.values()].filter(d => d.items.length).sort((a, b) => a.date.localeCompare(b.date));
 
-  // 아침 첫 장소가 전날 마지막 장소(숙소)와 다르면, 숙소에서 출발하는 줄을 맨 앞에 추가
+  // 아침 첫 장소가 숙소가 아니면, 전날 묵은 숙소에서 출발하는 줄을 맨 앞에 추가
+  // (전날 마지막이 식당이어도 숙소 기준. 비행기 탄 다음 날은 추가 안 함)
   for (let k = 1; k < list.length; k++) {
-    const prev = list[k - 1].items.at(-1), first = list[k].items[0];
-    if (isFlight(prev.place) || samePlace(prev, first)) continue;
+    const prevItems = list[k - 1].items, first = list[k].items[0];
+    if (isFlight(prevItems.at(-1).place) || isHotel(first.place)) continue;
+    const prev = prevItems.filter(it => isHotel(it.place)).at(-1) || prevItems.at(-1);
+    if (samePlace(prev, first)) continue;
     list[k].items.unshift({ ...prev, time: null, stay: 0, memo: '전날 숙소에서 출발', notes: [], auto: true });
   }
   for (const d of list) d.items.forEach((it, i) => (it.id = `${d.date}#${i}`));
