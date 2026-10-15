@@ -900,7 +900,7 @@ function renderSheet() {
   if (!sh) { el.hidden = true; el.innerHTML = ''; return; }
   el.hidden = false;
   if (S.pick) {
-    el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 위치를 고르세요</b><button data-act="pickCancel">취소</button></div>`;
+    el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
   el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml }[sh.type](sh);
@@ -1064,7 +1064,7 @@ function editHtml(sh) {
     ${!sh.trip && !isStart && from ? `<div class="from-line">출발: <b>${esc(from.place)}</b>에서 <span class="muted small">(바로 앞 장소)</span></div>` : ''}
     <div class="search-row"><input id="edQuery" placeholder="${isStart ? '출발지 검색 (예: 숙소 이름)' : '도착지 이름이나 주소 (예: 시드니 오페라하우스)'}" value="${esc(sh.query)}" enterkeyhint="search"><button class="primary" data-act="edSearch">검색</button></div>
     ${resultsHtml(sh.results, 'edChoose')}
-    <div class="chips pick-row"><button class="chip-btn" data-act="edPick">🗺️ 지도에서 고르기</button>${isStart ? '<button class="chip-btn" data-act="edHere">📍 현재 위치로</button>' : ''}</div>
+    <div class="chips pick-row"><button class="chip-btn" data-act="edPick">🗺️ 지도에서 고르기</button>${isStart ? '<button class="chip-btn" data-act="edHere">📍 현위치 출발</button>' : ''}</div>
     <div class="picked">${placeBox(dr, isStart ? '아직 출발지를 고르지 않았어요' : '아직 도착지를 고르지 않았어요')}</div>
     <label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>`;
 
@@ -1075,8 +1075,9 @@ function editHtml(sh) {
       <div class="section-title">어디서 출발하나요?</div>
       <div class="picked origin">${placeBox(sh.origin, '아직 출발지를 고르지 않았어요')}</div>
       <div class="chips pick-row">
-        <button class="chip-btn ${sh.origin.from === 'here' ? 'on' : ''}" data-act="orHere">📍 현재 위치로</button>
-        ${h ? `<button class="chip-btn ${sh.origin.from === 'hotel' ? 'on' : ''}" data-act="orHotel">🏨 ${esc(h.place)}</button>` : ''}
+        <button class="chip-btn" data-act="edPick" data-target="origin">🗺️ 지도에서 고르기</button>
+        <button class="chip-btn" data-act="orHere">📍 현위치 출발</button>
+        ${h ? `<button class="chip-btn" data-act="orHotel">🏨 ${esc(h.place)}</button>` : ''}
       </div>
       <div class="search-row"><input id="orQuery" placeholder="출발지 검색 (숙소, 역 등)" value="${esc(sh.oQuery)}" enterkeyhint="search"><button data-act="orSearch">검색</button></div>
       ${resultsHtml(sh.oResults, 'orChoose')}
@@ -1451,6 +1452,7 @@ async function act(name, el) {
     case 'edPick':
       syncDraft();
       S.pick = true; S.pickReturn = topLayer();
+      S.pickTarget = el.dataset.target === 'origin' ? 'origin' : 'dest'; // 출발지 / 도착지 중 어느 쪽을 고르는지
       if (topLayer() !== 'map') openMap(S.focus);
       renderSheet();
       toast('지도에서 원하는 곳을 누르세요');
@@ -1728,6 +1730,12 @@ async function init() {
 
   S.map = await createMap($('#map'), S.settings.apiKey, msg => toast(msg || '구글맵 API 키를 확인해 주세요', 6000));
   S.map.onClick(ll => {
+    if (S.pick && S.sheet?.type === 'edit' && S.pickTarget === 'origin') {
+      S.sheet.origin = { place: '지도에서 고른 위치', address: '', lat: ll.lat, lng: ll.lng, from: 'map' };
+      S.sheet.oResults = null;
+      finishPick();
+      return;
+    }
     if (S.pick && S.sheet?.type === 'edit') {
       const dr = S.sheet.draft;
       Object.assign(dr, { lat: ll.lat, lng: ll.lng, address: '' });
