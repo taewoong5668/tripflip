@@ -338,9 +338,12 @@ function renderTimeline() {
     const isArr = s.arrive != null, stay = stayMin(it, s, i < n - 1);
     const tag = state === 'here' ? '<span class="row-tag now">지금</span>' : state === 'next' ? '<span class="row-tag next">다음</span>'
       : done ? `<span class="row-tag">${state === 'skip' ? '건너뜀' : '완료'}</span>` : '';
-    const sub = [isArr ? '도착' : '출발', stay ? `${fmtDur(stay)} 머묾` : '', i < n - 1 && isArr ? `${fmtClock(s.depart)} 출발` : ''].filter(Boolean).join(' · ');
+    // 하루의 첫 장소는 머물던 곳이자 출발지: "00:00에 떠나기"만
+    const first = i === 0 && n > 1;
+    const sub = first ? `${fmtClock(s.depart)}에 떠나기`
+      : [isArr ? '도착' : '출발', stay ? `${fmtDur(stay)} 머묾` : '', i < n - 1 && isArr ? `${fmtClock(s.depart)} 출발` : ''].filter(Boolean).join(' · ');
     return `${leg}<div class="row ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
-      <div class="row-time">${fmtClock(isArr ? s.arrive : s.depart)}</div>
+      <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
       <div class="row-main">
         <div class="row-name">${esc(it.place)}${tag}</div>
         <div class="row-sub">${sub}${hasPos(it) ? '' : ' · <span class="bad">위치 없음</span>'}</div>
@@ -375,11 +378,13 @@ function renderDetail() {
       ${stateTag ? `<span class="dt-state ${state}">${stateTag}</span>` : ''}
       ${it.address ? `<div class="dt-addr">${esc(it.address)}</div>` : ''}
     </div>
-    <div class="dt-times">
+    ${i === 0 && n > 1
+      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}에 떠나기</b>${p.dep ? `<em>실제 ${clockOf(p.dep)} 출발</em>` : ''}</div></div>`
+      : `<div class="dt-times">
       <div><span>도착</span><b>${s.arrive != null ? fmtClock(s.arrive) : '—'}</b>${p.arr ? `<em>실제 ${clockOf(p.arr)}</em>` : ''}</div>
       <div><span>머무는 시간</span><b>${stay ? fmtDur(stay) : '—'}</b></div>
       <div><span>출발</span><b>${i < n - 1 ? fmtClock(s.depart) : '—'}</b>${p.dep ? `<em>실제 ${clockOf(p.dep)}</em>` : ''}</div>
-    </div>
+    </div>`}
     ${warns.map(w => `<div class="dt-warn">⚠ ${esc(w)}</div>`).join('')}
     <div class="dt-card"><div class="dt-dist" data-dist="${i}">📍 내 위치를 확인하는 중…</div></div>
     ${i > 0 ? `<div class="dt-card">
@@ -487,8 +492,8 @@ function renderCarousel() {
   const ph = isLive() ? phase(d) : null, n = d.items.length;
   el.innerHTML = d.items.map((it, i) => {
     const s = S.cur.sched[i], st = itemState(d, i, ph), l = S.cur.legs[i];
-    const t = s.arrive != null ? `${fmtClock(s.arrive)} 도착` : `${fmtClock(s.depart)} 출발`;
-    const sub = [t, i < n - 1 && s.arrive != null ? `${fmtClock(s.depart)} 출발` : '', i > 0 && l?.dur != null ? `${MODES[it.mode].icon} ${fmtDur(l.dur)}` : ''].filter(Boolean).join(' · ');
+    const sub = i === 0 && n > 1 ? `${fmtClock(s.depart)}에 떠나기`
+      : [s.arrive != null ? `${fmtClock(s.arrive)} 도착` : `${fmtClock(s.depart)} 출발`, i < n - 1 && s.arrive != null ? `${fmtClock(s.depart)} 출발` : '', i > 0 && l?.dur != null ? `${MODES[it.mode].icon} ${fmtDur(l.dur)}` : ''].filter(Boolean).join(' · ');
     return `<button class="c-card ${S.focus === i ? 'on' : ''} ${st === 'done' ? 'done' : ''}" data-act="cardToList" data-i="${i}">
       <span class="dot ${i === 0 ? 'sq' : ''}" style="--c:${placeColor(i, st)}">${st === 'done' ? '✓' : labelOf(d, i)}</span>
       <span class="c-text"><div class="c-name">${esc(it.place)}</div><div class="c-sub">${sub}</div></span>

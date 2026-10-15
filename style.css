@@ -117,6 +117,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dt-state.next { background: var(--accent-soft); color: var(--accent); }
 .dt-addr { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .dt-times { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.dt-times.one { grid-template-columns: 1fr; }
 .dt-times > div { background: var(--card); border-radius: 18px; padding: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
 .dt-times span { font-size: 11px; font-weight: 700; color: var(--muted); }
 .dt-times b { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
