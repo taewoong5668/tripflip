@@ -23,8 +23,16 @@ const VEHICLE = { SUBWAY: '🚇', METRO_RAIL: '🚇', HEAVY_RAIL: '🚆', COMMUT
 const wp = p => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
 const secs = s => (s ? parseInt(s, 10) : 0);
 
+// 시간 제한 있는 요청: 서버가 답을 안 하면 무한정 기다리지 않고 실패로 처리 (휴대폰 통신이 불안할 때 멈춤 방지)
+function fetchT(url, opts = {}, ms = 10000) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctl.signal })
+    .catch(e => { throw new Error(e.name === 'AbortError' ? '응답이 너무 늦어요' : '인터넷 연결을 확인해 주세요'); })
+    .finally(() => clearTimeout(timer));
+}
+
 async function post(url, key, fields, body) {
-  const res = await fetch(url, {
+  const res = await fetchT(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': fields },
     body: JSON.stringify(body),
@@ -103,32 +111,42 @@ export async function searchPlaces(key, query, near) {
   }));
 }
 
+let nominatimPausedUntil = 0;
+
 /** API 키 없이 쓰는 무료 검색 (OpenStreetMap). 결과가 구글보다 부정확할 수 있음 */
 export async function searchPlacesFree(query, near) {
   let u = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ko&q=${encodeURIComponent(query)}`;
   // near가 있으면 그 주변(약 5km) 안에서만 찾기
   if (near) u += `&viewbox=${near.lng - 0.05},${near.lat + 0.05},${near.lng + 0.05},${near.lat - 0.05}&bounded=1`;
-  let list = [], err = null;
-  try {
-    const res = await fetch(u);
+  const nominatim = async () => {
+    const res = await fetchT(u, {}, 8000);
     if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
-    list = (await res.json()).map(p => ({
+    return (await res.json()).map(p => ({
       name: p.name || p.display_name.split(',')[0],
       address: p.display_name,
       lat: +p.lat,
       lng: +p.lon,
     }));
-  } catch (e) { err = e; }
+  };
+  let list = [], err = null;
+  // Nominatim은 많이 쓰면 잠시 막힘 → 막힌 뒤 1분 동안은 건너뛰고 바로 Photon으로
+  const skipped = Date.now() < nominatimPausedUntil;
+  if (!skipped) {
+    try { list = await nominatim(); } catch (e) { err = e; nominatimPausedUntil = Date.now() + 60000; }
+  }
   if (list.length) return list;
   // 못 찾으면 Photon으로 한 번 더: 글자가 조금 달라도(띄어쓰기·일부 이름) 찾아 줌. "광주 유스퀘어" 같은 경우
-  try { list = await searchPhoton(query, near); } catch (e) { if (err) throw err; throw e; }
-  return list;
+  try { return await searchPhoton(query, near); } catch (e) {
+    // Photon도 안 되면, 건너뛰었던 Nominatim을 그래도 한 번 시도
+    if (skipped) return nominatim();
+    throw err || e;
+  }
 }
 
 async function searchPhoton(query, near) {
   let u = `https://photon.komoot.io/api/?limit=6&q=${encodeURIComponent(query)}`;
   if (near) u += `&lat=${near.lat}&lon=${near.lng}`;
-  const res = await fetch(u);
+  const res = await fetchT(u, {}, 8000);
   if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
   const json = await res.json();
   return (json.features || []).filter(f => {
@@ -291,7 +309,7 @@ export async function fetchRouteFree(from, to, mode) {
   const path = OSRM[mode];
   if (!path) return [];
   const url = `https://routing.openstreetmap.de/${path}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=polyline&steps=true`;
-  const res = await fetch(url);
+  const res = await fetchT(url, {}, 12000);
   if (!res.ok) throw new Error(`무료 길찾기 실패 (${res.status})`);
   const json = await res.json();
   return (json.routes || []).map(r => {

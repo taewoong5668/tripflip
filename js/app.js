@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610160149';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610160209';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160149';
-import { createMap } from './map.js?v=202610160149';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree } from './google.js?v=202610160149';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160149';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160149';
+} from './schedule.js?v=202610160209';
+import { createMap } from './map.js?v=202610160209';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree } from './google.js?v=202610160209';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160209';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160209';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1990,6 +1990,9 @@ async function locate(it, anchor) {
     const g = await findPlace(q, anchor);
     if (g) return g;
   }
+  // "Meriton Suites Kent Street Sydney"처럼 이름+도시 한 줄이면 끝 단어(도시)를 떼고 그날 다른 장소 근처에서 한 번 더
+  const words = addr.split(/\s+/);
+  if (parts.length < 2 && words.length >= 3 && anchor) return findPlace(words.slice(0, -1).join(' '), anchor);
   return null;
 }
 
@@ -2006,21 +2009,33 @@ async function geocodeMissing() {
       const todo = S.plan.days.flatMap(d => d.items.filter(it => !hasPos(it)).map(it => [d, it]));
       if (!todo.length) break;
       failed = 0;
-      for (const [d, it] of todo) {
+      let errors = 0, lastErr = null;
+      for (const [k, [d, it]] of todo.entries()) {
         if (S.plan !== plan) return; // 다른 일정을 불러왔으면 그만
         const q = it.address || it.place;
         let g = S.geoCache[q];
         if (!g) {
+          if (!S.settings.apiKey) toast(`📍 장소 위치 찾는 중… ${k + 1}/${todo.length}`, 8000);
           try {
             g = await locate(it, anchorFor(d, it));
-          } catch (e) { toast(`장소 검색 실패: ${e.message}`, 5000); return; }
+            errors = 0;
+          } catch (e) {
+            // 한 곳이 실패해도 멈추지 않고 다음 장소로. 연속으로 계속 실패하면(인터넷 끊김 등) 잠시 멈춤
+            lastErr = e; failed++;
+            if (++errors >= 4) { toast(`장소 검색이 계속 실패해요 (${e.message}). 잠시 뒤 앱을 다시 열면 이어서 찾아요`, 7000); break; }
+            await sleep(3000);
+            continue;
+          }
         }
         if (!g) { failed++; continue; }
         S.geoCache[q] = g;
         it.lat = g.lat; it.lng = g.lng;
         found++;
-        if (found % 5 === 0) { savePlan(); store.set('tg.geo', S.geoCache); } // 중간중간 저장
+        // 찾는 대로 바로 화면에 표시하고 저장 (다 끝날 때까지 기다리지 않게)
+        if (d === curDay()) { recompute(); renderAll(false); }
+        if (found % 3 === 0) { savePlan(); store.set('tg.geo', S.geoCache); }
       }
+      if (lastErr && errors >= 4) break;
       const more = dropFarPlaces();
       fixed += more;
       if (!more) break;
