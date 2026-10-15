@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160036';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160044';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160036';
-import { createMap } from './map.js?v=202610160036';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160036';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160036';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160036';
+} from './schedule.js?v=202610160044';
+import { createMap } from './map.js?v=202610160044';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160044';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160044';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160044';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -323,7 +323,8 @@ function renderTimeline() {
         <p>가고 싶은 곳(도착지)을 고르고, 어디서 출발할지 정하면 동선과 출발 시간이 자동으로 계산되고 지도에 표시돼요.</p>
         <p class="muted small">← 화면을 좌우로 밀면 다른 날짜로 넘어가요 →</p>
         <div class="st-actions"><button class="primary" data-act="addPlace" data-i="0">＋ 어디로 갈까요?</button>
-        ${S.plan.days.length ? '' : '<button data-act="load">엑셀 일정 불러오기</button>'}</div>
+        <button data-act="guide">📄 엑셀로 여행 전체 넣기</button></div>
+        ${S.plan.days.length ? '' : '<p class="muted small">여행 일정이 길다면 양식을 받아 ChatGPT·Claude·Gemini에게 채워 달라고 하면 한 번에 넣을 수 있어요.</p>'}
       </div>`;
     return;
   }
@@ -350,7 +351,7 @@ function renderTimeline() {
       <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
       <div class="row-main">
         <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
-        <div class="row-sub">${sub}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
+        <div class="row-sub">${sub}${s.late > 0 && !done ? ` <span class="late-tag">⚠ ${fmtDur(s.late)} 늦음</span>` : ''}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
       </div>
       <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
     </div>${(gaps[i] || []).map(g => `<div class="meal-slot" data-act="meal" data-type="${g.type}" data-k="${i}">
@@ -1046,7 +1047,112 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, meal: mealHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, meal: mealHtml, guide: guideHtml }[sh.type](sh);
+}
+
+// ---------- 일정을 넣거나 바꿀 때 미리 계산해서 예약 지각·밀림 알려주기 ----------
+// newItems로 바뀌면 원래 있던 일정들이 얼마나 밀리는지, 예약(시간 고정) 일정에 늦게 되는지
+function previewChange(d, newItems) {
+  const before = dayPlan(d).sched, after = dayPlan({ ...d, items: newItems }).sched;
+  const old = new Map(d.items.map((it, i) => [it.id, before[i]]));
+  const late = [], shifted = [], shortened = [], tight = [];
+  newItems.forEach((it, j) => {
+    const b = old.get(it.id), a = after[j];
+    if (!b) { if (a.short >= 10) tight.push({ it, mins: Math.round(a.stayEff ?? 0) }); return; } // 새 일정이 들어갈 틈이 모자람
+    if (a.late > (b.late || 0)) late.push({ it, mins: a.late });
+    const cut = (b.stayEff ?? 0) - (a.stayEff ?? 0);
+    if (j < newItems.length - 1 && cut >= 10) shortened.push({ it, mins: Math.round(cut) });
+    const moved = (a.arrive ?? a.depart) - (b.arrive ?? b.depart);
+    if (moved >= 5) shifted.push({ it, mins: Math.round(moved) });
+  });
+  return { late, shifted, shortened, tight };
+}
+
+// k번 뒤에 시간 없는 일정을 끼우면, 원래는 k번이 남는 시간을 다 빼앗겨 0분 머묾이 됨.
+// → k번이 원래 머물던 시간을 지키고, 뒤 예약까지 모자라는 만큼만 k번에서 줄임
+function keepStay(d, items, k) {
+  const it = items[k], s = dayPlan(d).sched[d.items.findIndex(x => x.id === it?.id)];
+  if (!it || k === 0 || it.stay || !(s?.stayEff > 0)) return items;
+  const out = [...items];
+  out[k] = { ...it, stay: Math.round(s.stayEff) };
+  const after = dayPlan({ ...d, items: out }).sched;
+  const j = out.findIndex((x, n) => n > k + 1 && x.time != null);
+  const over = (after[k + 1]?.short || 0) + (j > 0 ? after[j].late : 0); // 새 일정이 못 머무는 만큼 + 예약에 늦는 만큼
+  if (over > 0) out[k] = { ...it, stay: Math.max(0, out[k].stay - over) };
+  if (!out[k].stay) out[k] = it;
+  return out;
+}
+
+// 예약에 늦게 되면 먼저 물어봄. 넣기로 하면 결과를 돌려줌, 취소하면 null
+function confirmChange(d, newItems) {
+  const imp = previewChange(d, newItems);
+  if (imp.late.length) {
+    const lines = imp.late.map(x => `· ${x.it.place} (${fmtClock(x.it.time)})에 ${fmtDur(x.mins)} 늦어요`).join('\n');
+    if (!confirm(`이렇게 하면 시간을 정해 둔 일정(예약 등)에 늦어요.\n\n${lines}\n\n그래도 진행할까요?`)) return null;
+  } else if (imp.tight.length) {
+    const x = imp.tight[0];
+    if (!confirm(`뒤에 시간을 정해 둔 일정(예약 등)이 있어서 ${x.it.place}에는 ${x.mins > 0 ? `${fmtDur(x.mins)}밖에` : '거의'} 못 머물러요.\n\n그래도 넣을까요?`)) return null;
+  }
+  return imp;
+}
+
+function changeToast(imp, base) {
+  const bits = [base];
+  if (imp?.late.length) bits.push(`⚠ 정해 둔 시간에 ${imp.late.length}곳 늦어요 (목록에 표시)`);
+  else if (imp?.shortened.length) bits.push(`정해 둔 시간을 지키려고 ${imp.shortened.map(x => `${x.it.place} ${fmtDur(x.mins)}`).join(', ')} 덜 머물러요`);
+  else if (imp?.shifted.length) bits.push(`뒤 일정 ${imp.shifted.length}곳이 최대 ${fmtDur(Math.max(...imp.shifted.map(x => x.mins)))} 밀렸어요`);
+  const big = imp && (imp.late.length || imp.shifted.length || imp.shortened.length);
+  toast(bits.filter(Boolean).join(' · '), big ? 6000 : 3000);
+}
+
+// ---------- 일정 양식 · AI로 일정 만들기 안내 ----------
+const WEB_URL = 'https://taewoong5668.github.io/tripflip/';
+const AI_PROMPT = `아래 여행 계획을 엑셀(.xlsx) 파일 하나로 만들어줘. "일정" 시트 하나에 표 하나만.
+
+열(머리글)은 정확히 이 이름으로:
+날짜 | 시간 | 장소 | 주소(검색어) | 체류(분) | 이동수단 | 설명 | 주변 추천 | 메모
+
+규칙:
+- 한 줄 = 장소 하나, 방문 순서대로
+- 날짜: 2026-11-03 형식, 그날 첫 줄에만 적기
+- 시간: 그날 첫 줄(숙소)은 출발 시간, 나머지는 예약처럼 꼭 맞춰야 하는 도착 시간만 HH:MM으로 (나머지는 비우기)
+- 주소(검색어): 구글맵에서 찾을 수 있는 영어 장소 이름 + 도시 (예: Meiji Jingu Shrine Tokyo)
+- 체류(분): 머무는 시간 숫자
+- 이동수단: 그 장소까지 가는 방법, 도보/대중교통/차량/자전거 중 하나
+- 주변 추천: "a. 장소  b. 장소  c. 장소" 형식
+- 매일 숙소에서 출발해서 숙소로 돌아오는 줄로 끝내기
+
+여행 계획:
+(여기에 여행지, 날짜, 숙소, 가고 싶은 곳, 예약한 것을 적어 주세요)`;
+
+function guideHtml() {
+  return `<div class="sheet-head"><div><div class="st-label">일정 넣는 방법</div><b>📄 엑셀 양식으로 한 번에 넣기</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <div class="guide-step"><b>1. 양식 받기</b><div class="muted small">날짜·시간·장소 칸이 있는 엑셀 양식이에요. 예시를 지우고 내 일정을 적으면 돼요.</div>
+      <button class="chip-btn on" data-act="getTemplate">📄 일정 양식 받기 (.xlsx)</button></div>
+    <div class="guide-step"><b>2. AI에게 부탁하기 (더 쉬움)</b><div class="muted small">ChatGPT · Claude · Gemini에 아래 문구를 붙여넣고, 맨 아래에 내 여행 계획을 적어 보내세요. 양식에 맞는 엑셀 파일을 만들어 줘요.</div>
+      <pre class="prompt">${esc(AI_PROMPT)}</pre>
+      <button class="chip-btn on" data-act="copyPrompt">📋 문구 복사하기</button></div>
+    <div class="guide-step"><b>3. 불러오기</b><div class="muted small">받은 엑셀 파일을 ⚙️ 설정 → "📂 엑셀/CSV 일정 불러오기"로 열면 날짜별 시간표와 지도가 만들어져요.</div>
+      <button class="chip-btn" data-act="load">📂 지금 불러오기</button></div>`;
+}
+
+async function getTemplate() {
+  // 앱에서는 웹 주소로 열어 휴대폰 브라우저가 내려받게, 웹앱에서는 바로 내려받기
+  if (isNative) { openExternal(`${WEB_URL}tripflip-template.xlsx`); return; }
+  const a = document.createElement('a');
+  a.href = 'tripflip-template.xlsx'; a.download = '트립플립_일정양식.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('양식을 내려받았어요');
+}
+
+async function copyPrompt() {
+  try { await navigator.clipboard.writeText(AI_PROMPT); toast('복사했어요. AI 채팅창에 붙여넣으세요'); } catch {
+    // 복사가 막힌 환경: 글을 선택해 두기
+    const pre = document.querySelector('.prompt');
+    const r = document.createRange(); r.selectNodeContents(pre);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast('글을 길게 눌러 복사해 주세요');
+  }
 }
 
 // ---------- 식사 장소 추천 ----------
@@ -1097,13 +1203,17 @@ function mealAdd(r) {
   // 식사 시각에 맞춰 도착하도록 (앞 장소 도착 뒤 30분은 머물게)
   const prevS = S.cur.sched[sh.k], prevArr = prevS ? (prevS.arrive ?? prevS.depart) : 0;
   const at = Math.max(sh.meal.center, prevArr + 30);
-  d.items.splice(sh.k + 1, 0, {
+  const item = {
     id: newId(), place: r.name, address: r.address || '', lat: r.lat, lng: r.lng, time: at, stay: sh.meal.stay,
     mode: r.d < 1200 ? 'WALK' : 'TRANSIT', memo: `${sh.meal.label} (추천${r.rating ? ` · ★${r.rating.toFixed(1)}` : ''})`,
     notes: r.kind ? [{ label: '설명', text: r.kind }] : [],
-  });
+  };
+  const items = [...d.items]; items.splice(sh.k + 1, 0, item);
+  const imp = confirmChange(d, items);
+  if (!imp) return;
+  d.items = items;
   savePlan(); recompute(); closeSheet(); renderAll(false); prefetchLegs(); scheduleAlarms();
-  toast(`${r.name}을(를) ${sh.meal.label} 일정으로 넣었어요`);
+  changeToast(imp, `${r.name}을(를) ${sh.meal.label} 일정으로 넣었어요`);
 }
 
 // ---------- 주변 추천 장소 ----------
@@ -1149,9 +1259,14 @@ function poiHtml(sh) {
 // 추천 장소를 그 일정 바로 뒤에 넣기 (걸어서, 30분 머묾)
 function poiAdd(r, i) {
   const d = curDay();
-  d.items.splice(i + 1, 0, { id: newId(), place: r.name, address: r.address || '', lat: r.lat, lng: r.lng, time: null, stay: 30, mode: 'WALK', memo: `${d.items[i].place} 주변 추천`, notes: [] });
+  let items = [...d.items];
+  items.splice(i + 1, 0, { id: newId(), place: r.name, address: r.address || '', lat: r.lat, lng: r.lng, time: null, stay: 30, mode: 'WALK', memo: `${d.items[i].place} 주변 추천`, notes: [] });
+  items = keepStay(d, items, i);
+  const imp = confirmChange(d, items);
+  if (!imp) return;
+  d.items = items;
   savePlan(); recompute(); closeSheet(); renderAll(false); prefetchLegs(); scheduleAlarms();
-  toast(`${r.name}을(를) ${d.items[i].place} 다음 일정으로 넣었어요`);
+  changeToast(imp, `${r.name}을(를) ${d.items[i].place} 다음 일정으로 넣었어요`);
 }
 
 function closeSheet() {
@@ -1457,6 +1572,16 @@ function edSave() {
     time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [], files: dr.files || [],
   };
   if (dr.auto) item.auto = true;
+  let imp = null;
+  if (!sh.trip) {
+    // 끼워 넣거나 고쳐서 뒤 예약에 늦게 되면 먼저 물어봄
+    const items = [...d.items];
+    if (sh.id) items[items.findIndex(x => x.id === sh.id)] = item; else items.splice(sh.index, 0, item);
+    const fitted = !sh.id && item.time == null && sh.index > 0 ? keepStay(d, items, sh.index - 1) : items;
+    imp = confirmChange(d, fitted);
+    if (!imp) return;
+    if (fitted !== items) d.items[sh.index - 1] = fitted[sh.index - 1];
+  }
   sh.saved = true;
   (sh.removed || []).forEach(id => deleteFile(id).catch(() => {})); // 수정 창에서 뺀 첨부는 실제로 지움
   if (sh.trip) {
@@ -1475,7 +1600,7 @@ function edSave() {
   renderAll(true);
   prefetchLegs();
   scheduleAlarms();
-  toast(sh.id ? '수정했어요' : sh.trip ? `${originOf(sh).place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
+  changeToast(imp, sh.id ? '수정했어요' : sh.trip ? `${originOf(sh).place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
 }
 
 function deletePlace(d, idx) {
@@ -1514,6 +1639,7 @@ function settingsHtml() {
       <button data-act="askNotify">알림 권한 허용</button>
       <button data-act="testAlarm">10초 뒤 테스트 알람</button>
       <button data-act="load">📂 엑셀/CSV 일정 불러오기</button>
+      <button data-act="guide">📄 일정 양식 · AI로 만들기</button>
       <button data-act="rename">여행 이름 바꾸기</button>
       ${curDay() ? '<button data-act="resetProgress">이 날 도착 기록 지우기</button><button data-act="clearRoutes">경로 다시 계산</button>' : ''}
       ${S.plan.days.length ? '<button data-act="deletePlan" class="danger">모든 일정 삭제</button>' : ''}
@@ -1794,6 +1920,9 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'guide': S.sheet = { type: 'guide' }; S.routeView = null; renderSheet(); break;
+    case 'getTemplate': getTemplate(); break;
+    case 'copyPrompt': copyPrompt(); break;
     case 'meal': openMeal(el.dataset.type, +el.dataset.k); break;
     case 'mealSkip': {
       (d.skipMeals ||= {})[el.dataset.type] = true;

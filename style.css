@@ -100,6 +100,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .row.done::before, .row.skip::before, .row.done .row-num, .row.skip .row-num { background: var(--faint); }
 .row.flash { animation: flash 1.4s ease; }
 @keyframes flash { 0%, 60% { box-shadow: 0 0 0 3px var(--accent), var(--shadow); transform: scale(1.02); } 100% { transform: none; } }
+.guide-step { background: var(--bg); border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.guide-step b { font-size: 15px; }
+.prompt { width: 100%; max-height: 180px; overflow: auto; white-space: pre-wrap; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 4px 0; user-select: text; }
+.late-tag { display: inline-block; margin-left: 4px; font-size: 11px; font-weight: 800; color: var(--danger); background: var(--danger-soft); border-radius: 6px; padding: 0 6px; }
 .meal-slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 6px 0; padding: 9px 8px 9px 14px; border: 1.5px dashed color-mix(in srgb, var(--warn) 55%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--warn-soft) 60%, transparent); color: var(--warn); font-size: 13px; font-weight: 800; cursor: pointer; }
 .meal-slot .muted { font-weight: 600; }
 .meal-x { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 50%; font-size: 13px; flex: none; }
