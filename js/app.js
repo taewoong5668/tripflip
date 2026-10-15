@@ -1342,28 +1342,91 @@ function selectDay(date, manual, fromBack) {
   updateLiveRoute(true);
 }
 
-async function geocodeMissing() {
-  const missing = S.plan.days.flatMap(d => d.items).filter(it => !hasPos(it));
-  if (!missing.length) return;
-  const key = S.settings.apiKey;
-  if (!key) { toast(`위치가 없는 장소 ${missing.length}곳: 설정에 API 키를 넣으면 자동으로 찾아요`, 5000); return; }
-  let found = 0;
-  for (const it of missing) {
-    const q = it.address || it.place;
-    try {
-      const g = S.geoCache[q] || (await searchPlace(key, q));
-      if (!g) continue;
-      S.geoCache[q] = g;
-      it.lat = g.lat; it.lng = g.lng;
-      found++;
-    } catch (e) {
-      toast(`장소 검색 실패: ${e.message}`, 5000);
-      break;
+const FAR_KM = 300; // 같은 날 다른 장소들에서 이보다 멀면 잘못 찾은 위치로 봄
+
+// 이 장소 근처의 기준점: 같은 날, 순서상 가장 가까운 위치 있는 장소 (다른 날은 다른 도시일 수 있어 안 씀)
+function anchorFor(d, it) {
+  const i = d.items.indexOf(it);
+  const byDist = d.items.map((x, k) => [x, Math.abs(k - i)]).filter(([x]) => x !== it && hasPos(x)).sort((a, b) => a[1] - b[1]);
+  return byDist.length ? byDist[0][0] : null;
+}
+
+// 하루 장소들의 가운데(위도·경도 각각의 중앙값)
+function dayCenter(d) {
+  const ps = d.items.filter(hasPos);
+  if (ps.length < 3) return null;
+  const med = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  return { lat: med(ps.map(p => p.lat)), lng: med(ps.map(p => p.lng)) };
+}
+
+// 같은 날 다른 장소들과 수백 km 떨어진 위치(다른 도시의 같은 이름 장소)는 지우고 다시 찾게 함
+function dropFarPlaces() {
+  let n = 0;
+  for (const d of S.plan.days) {
+    const c = dayCenter(d);
+    if (!c) continue;
+    for (const it of d.items) {
+      if (hasPos(it) && haversine(c, it) > FAR_KM * 1000) {
+        delete S.geoCache[it.address || it.place];
+        it.lat = null; it.lng = null;
+        n++;
+      }
     }
   }
-  store.set('tg.geo', S.geoCache);
-  savePlan();
-  if (found) { toast(`장소 ${found}곳의 위치를 찾았어요`); recompute(); renderAll(true); prefetchLegs(); }
+  if (n) { savePlan(); store.set('tg.geo', S.geoCache); }
+  return n;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 장소 하나의 위치 찾기: 같은 날 다른 장소가 있으면 그 근처에서, 너무 먼 결과는 버림
+async function findPlace(q, anchor) {
+  const key = S.settings.apiKey;
+  const near = r => !anchor || haversine(anchor, r) < FAR_KM * 1000;
+  if (key) return (await searchPlaces(key, q, anchor)).find(near) || null;
+  await sleep(1100); // 무료 검색은 1초에 한 번까지
+  let g = (await searchPlacesFree(q, anchor)).find(near);
+  if (!g && anchor) { await sleep(1100); g = (await searchPlacesFree(q)).find(near); }
+  return g || null;
+}
+
+let geocoding = false;
+async function geocodeMissing() {
+  if (geocoding) return;
+  geocoding = true;
+  try {
+    let fixed = dropFarPlaces(), found = 0, failed = 0;
+    // 두 번까지: 처음 찾은 결과가 그날 다른 장소들과 동떨어지면 지우고 한 번 더
+    for (let pass = 0; pass < 2; pass++) {
+      const todo = S.plan.days.flatMap(d => d.items.filter(it => !hasPos(it)).map(it => [d, it]));
+      if (!todo.length) break;
+      failed = 0;
+      for (const [d, it] of todo) {
+        const q = it.address || it.place;
+        let g = S.geoCache[q];
+        if (!g) {
+          try { g = await findPlace(q, anchorFor(d, it)); } catch (e) { toast(`장소 검색 실패: ${e.message}`, 5000); return; }
+        }
+        if (!g) { failed++; continue; }
+        S.geoCache[q] = g;
+        it.lat = g.lat; it.lng = g.lng;
+        found++;
+        if (found % 5 === 0) { savePlan(); store.set('tg.geo', S.geoCache); } // 중간중간 저장
+      }
+      const more = dropFarPlaces();
+      fixed += more;
+      if (!more) break;
+    }
+    store.set('tg.geo', S.geoCache);
+    savePlan();
+    if (found) {
+      toast(fixed ? `잘못 찾았던 장소 ${fixed}곳을 다시 찾았어요` : `장소 ${found}곳의 위치를 찾았어요`, 4000);
+      recompute(); renderAll(true); prefetchLegs();
+    }
+    if (failed) toast(`위치를 찾지 못한 장소 ${failed}곳: 상세 페이지 → 수정에서 직접 골라 주세요`, 5000);
+  } finally {
+    geocoding = false;
+  }
 }
 
 let prefetchRun = 0;
