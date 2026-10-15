@@ -146,7 +146,7 @@ async function searchPhoton(query, near) {
 }
 
 // 식사 종류별로 찾을 가게 종류
-const FOOD_TYPES = {
+const PLACE_TYPES = {
   brunch: { google: ['cafe', 'breakfast_restaurant', 'brunch_restaurant', 'bakery'], osm: 'cafe|restaurant|bakery' },
   lunch: { google: ['restaurant'], osm: 'restaurant|fast_food|food_court' },
   dinner: { google: ['restaurant'], osm: 'restaurant|pub|bar' },
@@ -164,13 +164,13 @@ const FOOD_TYPES = {
 };
 
 /** 근처 식당·카페 (구글: 평점 높은 순) */
-export async function nearbyFood(key, center, meal, radius = 800, rank = 'POPULARITY') {
+export async function nearbyPlaces(key, center, kind, radius = 800, rank = 'POPULARITY') {
   const json = await post(
     'https://places.googleapis.com/v1/places:searchNearby',
     key,
     'places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.priceLevel,places.regularOpeningHours.weekdayDescriptions',
     {
-      includedTypes: FOOD_TYPES[meal].google, maxResultCount: 15, rankPreference: rank, languageCode: 'ko',
+      includedTypes: PLACE_TYPES[kind].google, maxResultCount: 15, rankPreference: rank, languageCode: 'ko',
       locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
     },
   );
@@ -204,16 +204,16 @@ const KIND = {
 };
 
 /** 근처 추천 장소 (무료). Photon을 먼저 쓰고(빠르고 안정적), 안 되면 OpenStreetMap Overpass */
-export async function nearbyFoodFree(center, meal, radius = 800) {
+export async function nearbyPlacesFree(center, kind, radius = 800) {
   try {
-    const list = await nearbyPhoton(center, meal, radius);
+    const list = await nearbyPhoton(center, kind, radius);
     if (list.length) return list;
   } catch { /* Overpass로 */ }
-  return nearbyOverpass(center, meal, radius);
+  return nearbyOverpass(center, kind, radius);
 }
 
-async function nearbyPhoton(center, meal, radius) {
-  const groups = await Promise.all(PHOTON_GROUPS[meal].map(async tags => {
+async function nearbyPhoton(center, kind, radius) {
+  const groups = await Promise.all(PHOTON_GROUPS[kind].map(async tags => {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
     try {
       const u = `https://photon.komoot.io/reverse?lat=${center.lat}&lon=${center.lng}&radius=${radius / 1000}&limit=10&${tags.map(t => `osm_tag=${t}`).join('&')}`;
@@ -234,8 +234,8 @@ async function nearbyPhoton(center, meal, radius) {
   return out;
 }
 
-async function nearbyOverpass(center, meal, radius) {
-  const t = FOOD_TYPES[meal], around = `(around:${radius},${center.lat},${center.lng})`;
+async function nearbyOverpass(center, kind, radius) {
+  const t = PLACE_TYPES[kind], around = `(around:${radius},${center.lat},${center.lng})`;
   const filters = [t.osm && `amenity~"^(${t.osm})$"`, ...(t.tags || [])].filter(Boolean);
   const q = `[out:json][timeout:15];(${filters.map(f => `nwr${around}[${f}][name];`).join('')});out center 40;`;
   // 무료 서버는 가끔 바쁘거나 막혀 있어서 여러 곳을 차례로 시도
@@ -263,19 +263,6 @@ async function nearbyOverpass(center, meal, radius) {
       hours: t.opening_hours || '',
     };
   }).filter(r => r.name && r.lat != null);
-}
-
-/** 장소 이름이나 주소로 좌표 찾기 */
-export async function searchPlace(key, query) {
-  const json = await post(
-    'https://places.googleapis.com/v1/places:searchText',
-    key,
-    'places.location,places.displayName,places.formattedAddress',
-    { textQuery: query, languageCode: 'ko', maxResultCount: 1 },
-  );
-  const p = json.places?.[0];
-  if (!p?.location) return null;
-  return { lat: p.location.latitude, lng: p.location.longitude, address: p.formattedAddress || '' };
 }
 
 export function decodePolyline(str) {
