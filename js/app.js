@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160018';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160025';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160018';
-import { createMap } from './map.js?v=202610160018';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160018';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160018';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160018';
+} from './schedule.js?v=202610160025';
+import { createMap } from './map.js?v=202610160025';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160025';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160025';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160025';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -347,7 +347,7 @@ function renderTimeline() {
       <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
       <div class="row-main">
         <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
-        <div class="row-sub">${sub}${hasPos(it) ? '' : ' · <span class="bad">위치 없음</span>'}</div>
+        <div class="row-sub">${sub}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
       </div>
       <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
     </div>`;
@@ -371,7 +371,6 @@ function renderDetail() {
   const warns = [];
   if (s.late) warns.push(`예약 시각보다 ${s.late}분 늦어요`);
   if (s.short) warns.push(`체류 시간이 ${s.short}분 모자라요`);
-  if (!hasPos(it)) warns.push('위치가 없어요 · 수정에서 장소를 검색해 주세요');
   el.innerHTML = `<div class="dt-scroll">
     <div class="dt-hero" style="--c:${color}">
       <div class="dt-kicker"><span class="dt-num ${i === 0 ? 'sq' : ''}">${state === 'done' ? '✓' : labelOf(d, i)}</span>${dayLabel(d.date)} · ${i + 1}/${n}번째</div>
@@ -387,6 +386,7 @@ function renderDetail() {
       <div><span>출발</span><b>${i < n - 1 ? fmtClock(s.depart) : '—'}</b>${p.dep ? `<em>실제 ${clockOf(p.dep)}</em>` : ''}</div>
     </div>`}
     ${warns.map(w => `<div class="dt-warn">⚠ ${esc(w)}</div>`).join('')}
+    ${hasPos(it) ? '' : `<button class="dt-warn fix" data-act="fixPlace" data-i="${i}">⚠ 위치를 찾지 못했어요 · <u>눌러서 지도에서 찾기</u></button>`}
     <div class="dt-card"><div class="dt-dist" data-dist="${i}">📍 내 위치를 확인하는 중…</div></div>
     ${i > 0 ? `<div class="dt-card">
       <div class="note-label">가는 방법 · ${esc(prev.place)}에서</div>
@@ -1146,7 +1146,12 @@ function syncDraft() {
 
 const resultsHtml = (list, act) => list == null ? ''
   : list === 'loading' ? '<div class="muted pad">검색 중…</div>'
-    : list.length ? `<div class="results">${list.map((r, k) => `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}</b><span class="muted small">${esc(r.address)}</span></button>`).join('')}</div>`
+    : list.length ? `<div class="results">${list.map((r, k) => {
+      // 그날 다른 장소에서 얼마나 먼지 같이 보여줘서 엉뚱한 결과를 피하기 쉽게
+      const ref = curDay()?.items.find(hasPos) || S.pos;
+      const far = ref ? ` · ${fmtDist(haversine(ref, r))}` : '';
+      return `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}<span class="muted small">${far}</span></b><span class="muted small">${esc(r.address)}</span></button>`;
+    }).join('')}</div>`
       : '<div class="muted pad">검색 결과가 없어요. 다른 이름이나 영어로 검색해 보세요.</div>';
 
 function placeBox(p, empty) {
@@ -1303,7 +1308,13 @@ async function edSearch(target = 'dest') {
   const near = d?.items.find(hasPos) || (hasPos(sh.origin) ? sh.origin : null) || S.pos || null;
   let res;
   try {
-    res = S.settings.apiKey ? await searchPlaces(S.settings.apiKey, q, near) : await searchPlacesFree(q);
+    if (S.settings.apiKey) res = await searchPlaces(S.settings.apiKey, q, near);
+    else {
+      // 무료 검색: 그날 장소 근처에서 먼저, 없으면 전체에서
+      res = near ? await searchPlacesFree(q, near) : [];
+      if (!res.length) res = await searchPlacesFree(q);
+    }
+    if (near) res.sort((a, b) => haversine(near, a) - haversine(near, b)); // 가까운 곳부터
   } catch (e) {
     res = [];
     toast(`검색 실패: ${e.message}`, 5000);
@@ -1612,7 +1623,11 @@ async function geocodeMissing() {
         const q = it.address || it.place;
         let g = S.geoCache[q];
         if (!g) {
-          try { g = await findPlace(q, anchorFor(d, it)); } catch (e) { toast(`장소 검색 실패: ${e.message}`, 5000); return; }
+          try {
+            g = await findPlace(q, anchorFor(d, it));
+            // 주소로 못 찾으면 장소 이름으로 한 번 더
+            if (!g && it.address && it.place && it.place !== it.address) g = await findPlace(it.place, anchorFor(d, it));
+          } catch (e) { toast(`장소 검색 실패: ${e.message}`, 5000); return; }
         }
         if (!g) { failed++; continue; }
         S.geoCache[q] = g;
@@ -1630,7 +1645,7 @@ async function geocodeMissing() {
       toast(fixed ? `잘못 찾았던 장소 ${fixed}곳을 다시 찾았어요` : `장소 ${found}곳의 위치를 찾았어요`, 4000);
       recompute(); renderAll(true); prefetchLegs();
     }
-    if (failed) toast(`위치를 찾지 못한 장소 ${failed}곳: 상세 페이지 → 수정에서 직접 골라 주세요`, 5000);
+    if (failed) toast(`위치를 찾지 못한 장소 ${failed}곳: 목록의 "위치 없음"을 누르면 바로 고를 수 있어요`, 6000);
   } finally {
     geocoding = false;
   }
@@ -1684,6 +1699,15 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'fixPlace': {
+      // 위치 없는 장소: 수정 창을 열고 장소 이름으로 바로 검색해 둠 → 결과에서 고르기만
+      const it = d.items[i];
+      openEditor(i, it.id);
+      S.sheet.query = it.place || it.address;
+      renderSheet(); // 검색칸에 이름을 먼저 채운 뒤 검색
+      edSearch('dest');
+      break;
+    }
     case 'tpOpen': case 'tpAmpm': case 'tpH': case 'tpM': case 'tpDone': case 'tpClear': tpAct(name, el); break;
     case 'files': openViewer(i, 0); break;
     case 'viewFile': openViewer(i, +el.dataset.k); break;

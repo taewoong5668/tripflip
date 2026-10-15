@@ -86,7 +86,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .row-main { flex: 1; min-width: 0; }
 .row-name { font-size: 18px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.3; }
 .row-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-.row-sub .bad { color: var(--danger); font-weight: 700; }
+.row-sub .bad { color: var(--danger); font-weight: 800; border: 0; background: var(--danger-soft); border-radius: 8px; padding: 2px 8px; font-size: 12px; }
+.dt-warn.fix { display: block; width: 100%; text-align: left; border: 0; cursor: pointer; }
 .row-num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--c); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
 .row-num.sq { border-radius: 9px; }
 .row-tag { display: inline-block; font-size: 11px; font-weight: 800; border-radius: 7px; padding: 2px 7px; margin-left: 7px; vertical-align: 3px; background: var(--card-2); color: var(--faint); letter-spacing: 0; }
