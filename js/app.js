@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160000';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js';
-import { createMap } from './map.js';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js';
+} from './schedule.js?v=202610160000';
+import { createMap } from './map.js?v=202610160000';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160000';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160000';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160000';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
