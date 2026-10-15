@@ -70,7 +70,7 @@ const HEADER_RE = /장소|목적지|place/i;
 // 머리글 줄: 칸이 2개 이상 채워져 있고, 짧은 "장소" 칸이 있는 줄 (제목 문장 속 "장소"는 무시)
 const isHeaderRow = r => r.filter(c => String(c).trim()).length >= 2
   && r.some(c => HEADER_RE.test(String(c)) && String(c).trim().length <= 12);
-const isHotel = s => /호텔|숙소|리조트|게스트하우스|에어비앤비|메리턴|풀러턴|hotel|suites|resort|hostel|airbnb/i.test(s);
+export const isHotel = s => /호텔|숙소|리조트|게스트하우스|에어비앤비|메리턴|풀러턴|hotel|suites|resort|hostel|airbnb/i.test(s);
 const isFlight = s => /탑승|비행기|항공편|flight|\b[A-Z]{2}\d{2,4}\b/i.test(s);
 
 // 시트 여러 개(날짜별 시트) 또는 하나(전체 일정)를 날짜별 일정으로 합치기

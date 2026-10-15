@@ -106,6 +106,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .late-tag { display: inline-block; margin-left: 4px; font-size: 11px; font-weight: 800; color: var(--danger); background: var(--danger-soft); border-radius: 6px; padding: 0 6px; }
 .meal-slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 6px 0; padding: 9px 8px 9px 14px; border: 1.5px dashed color-mix(in srgb, var(--warn) 55%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--warn-soft) 60%, transparent); color: var(--warn); font-size: 13px; font-weight: 800; cursor: pointer; }
 .meal-slot .muted { font-weight: 600; }
+.meal-slot.free { border-color: color-mix(in srgb, var(--ok) 55%, transparent); background: color-mix(in srgb, var(--ok-soft) 60%, transparent); color: var(--ok); }
+.meal-slot.night { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent-soft) 60%, transparent); color: var(--accent); }
 .meal-x { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 50%; font-size: 13px; flex: none; }
 .food-card { background: var(--bg); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; }
 .food-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
@@ -157,6 +159,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .status::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,.08); }
 .status.calm { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .status.calm::after { display: none; }
+/* 카드 오른쪽 위 편의점·약국·병원 작은 버튼 */
+.quick-near { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 4px; }
+.quick-near button { width: 32px; height: 32px; padding: 0; border-radius: 10px; font-size: 16px; line-height: 1; display: grid; place-items: center;
+  background: rgba(255,255,255,.18); border: 0; box-shadow: none; }
+.status.calm .quick-near button, .empty .quick-near button { background: var(--bg); }
+.quick-near button:active { transform: scale(.92); }
+.status .st-label { padding-right: 112px; }
+.empty { position: relative; }
 .st-label { font-size: 12px; font-weight: 600; opacity: .8; letter-spacing: .01em; }
 .st-title { font-size: 20px; font-weight: 800; margin: 3px 0 4px; letter-spacing: -0.03em; }
 .st-row { font-size: 14px; margin: 3px 0; opacity: .95; }

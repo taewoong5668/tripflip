@@ -150,16 +150,27 @@ const FOOD_TYPES = {
   brunch: { google: ['cafe', 'breakfast_restaurant', 'brunch_restaurant', 'bakery'], osm: 'cafe|restaurant|bakery' },
   lunch: { google: ['restaurant'], osm: 'restaurant|fast_food|food_court' },
   dinner: { google: ['restaurant'], osm: 'restaurant|pub|bar' },
+  // 일정 사이 여유 시간: 카페·소품샵·명소
+  free: {
+    google: ['cafe', 'gift_shop', 'book_store', 'tourist_attraction', 'museum', 'art_gallery', 'park'],
+    osm: 'cafe', tags: ['shop~"^(gift|variety_store|books|antiques|art|crafts|stationery|second_hand)$"', 'tourism~"^(attraction|museum|gallery|viewpoint)$"'],
+  },
+  // 일찍 숙소에 들어간 저녁: 술집·야식·편의점
+  night: { google: ['bar', 'pub', 'convenience_store', 'fast_food_restaurant', 'restaurant'], osm: 'bar|pub|fast_food|restaurant', tags: ['shop="convenience"'] },
+  // 내 주변 바로 찾기 (편의점·약국·병원)
+  conv: { google: ['convenience_store'], osm: '', tags: ['shop="convenience"'] },
+  pharmacy: { google: ['pharmacy', 'drugstore'], osm: 'pharmacy', tags: ['shop="chemist"'] },
+  hospital: { google: ['hospital', 'doctor'], osm: 'hospital|clinic|doctors' },
 };
 
 /** 근처 식당·카페 (구글: 평점 높은 순) */
-export async function nearbyFood(key, center, meal, radius = 800) {
+export async function nearbyFood(key, center, meal, radius = 800, rank = 'POPULARITY') {
   const json = await post(
     'https://places.googleapis.com/v1/places:searchNearby',
     key,
-    'places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.priceLevel',
+    'places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.priceLevel,places.regularOpeningHours.weekdayDescriptions',
     {
-      includedTypes: FOOD_TYPES[meal].google, maxResultCount: 15, rankPreference: 'POPULARITY', languageCode: 'ko',
+      includedTypes: FOOD_TYPES[meal].google, maxResultCount: 15, rankPreference: rank, languageCode: 'ko',
       locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
     },
   );
@@ -169,12 +180,64 @@ export async function nearbyFood(key, center, meal, radius = 800) {
     lat: p.location.latitude, lng: p.location.longitude,
     rating: p.rating || null, reviews: p.userRatingCount || 0,
     kind: p.primaryTypeDisplayName?.text || '',
+    week: p.regularOpeningHours?.weekdayDescriptions || null, // [월, 화, … 일] 영업시간
   }));
 }
 
-/** 근처 식당·카페 (무료 OpenStreetMap, 키 없이) */
+// Photon(무료)에서 종류별로 찾을 묶음. 묶음마다 따로 찾아 번갈아 보여줌 (카페만 잔뜩 나오지 않게)
+const PHOTON_GROUPS = {
+  brunch: [['amenity:cafe', 'shop:bakery'], ['amenity:restaurant']],
+  lunch: [['amenity:restaurant', 'amenity:fast_food', 'amenity:food_court']],
+  dinner: [['amenity:restaurant'], ['amenity:pub', 'amenity:bar']],
+  free: [['amenity:cafe'], ['shop:gift', 'shop:variety_store', 'shop:books', 'shop:antiques', 'shop:art', 'shop:crafts', 'shop:stationery', 'shop:second_hand'],
+    ['tourism:attraction', 'tourism:museum', 'tourism:gallery', 'tourism:viewpoint']],
+  night: [['amenity:bar', 'amenity:pub'], ['amenity:fast_food', 'amenity:restaurant'], ['shop:convenience']],
+  conv: [['shop:convenience']],
+  pharmacy: [['amenity:pharmacy', 'shop:chemist']],
+  hospital: [['amenity:hospital', 'amenity:clinic', 'amenity:doctors']],
+};
+const KIND = {
+  cafe: '카페', restaurant: '식당', bakery: '베이커리', fast_food: '간편식·야식', food_court: '푸드코트', pub: '펍', bar: '바',
+  gift: '소품샵', variety_store: '잡화점', books: '서점', antiques: '앤티크숍', art: '아트숍', crafts: '공예품숍', stationery: '문구점', second_hand: '빈티지숍',
+  attraction: '명소', museum: '박물관', gallery: '갤러리', viewpoint: '전망 명소', convenience: '편의점',
+  pharmacy: '약국', chemist: '드럭스토어', hospital: '병원', clinic: '의원', doctors: '의원',
+};
+
+/** 근처 추천 장소 (무료). Photon을 먼저 쓰고(빠르고 안정적), 안 되면 OpenStreetMap Overpass */
 export async function nearbyFoodFree(center, meal, radius = 800) {
-  const q = `[out:json][timeout:15];nwr(around:${radius},${center.lat},${center.lng})[amenity~"^(${FOOD_TYPES[meal].osm})$"][name];out center 30;`;
+  try {
+    const list = await nearbyPhoton(center, meal, radius);
+    if (list.length) return list;
+  } catch { /* Overpass로 */ }
+  return nearbyOverpass(center, meal, radius);
+}
+
+async function nearbyPhoton(center, meal, radius) {
+  const groups = await Promise.all(PHOTON_GROUPS[meal].map(async tags => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const u = `https://photon.komoot.io/reverse?lat=${center.lat}&lon=${center.lng}&radius=${radius / 1000}&limit=10&${tags.map(t => `osm_tag=${t}`).join('&')}`;
+      const res = await fetch(u, { signal: ctl.signal }).catch(() => null);
+      if (!res?.ok) return [];
+      return ((await res.json()).features || []).filter(f => f.properties.name).map(f => {
+        const p = f.properties, [lng, lat] = f.geometry.coordinates;
+        return {
+          name: p.name, address: [p.housenumber, p.street].filter(Boolean).join(' '), lat, lng,
+          rating: null, reviews: 0, kind: KIND[p.osm_value] || p.osm_value, hours: '',
+        };
+      });
+    } finally { clearTimeout(timer); }
+  }));
+  // 묶음별로 가까운 순서를 지키면서 번갈아 섞기
+  const out = [];
+  for (let i = 0; groups.some(g => g[i]); i++) groups.forEach(g => g[i] && out.push(g[i]));
+  return out;
+}
+
+async function nearbyOverpass(center, meal, radius) {
+  const t = FOOD_TYPES[meal], around = `(around:${radius},${center.lat},${center.lng})`;
+  const filters = [t.osm && `amenity~"^(${t.osm})$"`, ...(t.tags || [])].filter(Boolean);
+  const q = `[out:json][timeout:15];(${filters.map(f => `nwr${around}[${f}][name];`).join('')});out center 40;`;
   // 무료 서버는 가끔 바쁘거나 막혀 있어서 여러 곳을 차례로 시도
   const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
   let json = null;
@@ -190,14 +253,13 @@ export async function nearbyFoodFree(center, meal, radius = 800) {
     }
   }
   if (!json) throw new Error('무료 지도 서버가 응답하지 않아요. 잠시 뒤 다시 해 보세요');
-  const KIND = { cafe: '카페', restaurant: '식당', bakery: '베이커리', fast_food: '간편식', food_court: '푸드코트', pub: '펍', bar: '바' };
   return (json.elements || []).map(e => {
-    const t = e.tags || {};
+    const t = e.tags || {}, type = t.amenity || t.shop || t.tourism;
     return {
       name: t['name:ko'] || t.name, address: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '),
       lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon,
       rating: null, reviews: 0,
-      kind: [KIND[t.amenity] || t.amenity, t.cuisine?.split(';')[0]].filter(Boolean).join(' · '),
+      kind: [KIND[type] || type, t.cuisine?.split(';')[0]].filter(Boolean).join(' · '),
       hours: t.opening_hours || '',
     };
   }).filter(r => r.name && r.lat != null);
