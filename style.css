@@ -100,6 +100,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .row.done::before, .row.skip::before, .row.done .row-num, .row.skip .row-num { background: var(--faint); }
 .row.flash { animation: flash 1.4s ease; }
 @keyframes flash { 0%, 60% { box-shadow: 0 0 0 3px var(--accent), var(--shadow); transform: scale(1.02); } 100% { transform: none; } }
+.meal-slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 6px 0; padding: 9px 8px 9px 14px; border: 1.5px dashed color-mix(in srgb, var(--warn) 55%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--warn-soft) 60%, transparent); color: var(--warn); font-size: 13px; font-weight: 800; cursor: pointer; }
+.meal-slot .muted { font-weight: 600; }
+.meal-x { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 50%; font-size: 13px; flex: none; }
+.food-card { background: var(--bg); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; }
+.food-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.food-name { font-size: 16px; font-weight: 800; }
+.food-rate { font-size: 13px; font-weight: 800; color: var(--warn); white-space: nowrap; }
+.food-meta { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
 .row-leg { text-align: center; font-size: 12px; font-weight: 600; color: var(--muted); padding: 7px 0; position: relative; }
 .row-leg span { background: var(--bg); padding: 0 8px; position: relative; }
 .row-leg::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px dotted var(--line); }

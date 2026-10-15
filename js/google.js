@@ -118,6 +118,64 @@ export async function searchPlacesFree(query, near) {
   }));
 }
 
+// 식사 종류별로 찾을 가게 종류
+const FOOD_TYPES = {
+  brunch: { google: ['cafe', 'breakfast_restaurant', 'brunch_restaurant', 'bakery'], osm: 'cafe|restaurant|bakery' },
+  lunch: { google: ['restaurant'], osm: 'restaurant|fast_food|food_court' },
+  dinner: { google: ['restaurant'], osm: 'restaurant|pub|bar' },
+};
+
+/** 근처 식당·카페 (구글: 평점 높은 순) */
+export async function nearbyFood(key, center, meal, radius = 800) {
+  const json = await post(
+    'https://places.googleapis.com/v1/places:searchNearby',
+    key,
+    'places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.priceLevel',
+    {
+      includedTypes: FOOD_TYPES[meal].google, maxResultCount: 15, rankPreference: 'POPULARITY', languageCode: 'ko',
+      locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
+    },
+  );
+  return (json.places || []).filter(p => p.location).map(p => ({
+    name: p.displayName?.text || '이름 없음',
+    address: p.formattedAddress || '',
+    lat: p.location.latitude, lng: p.location.longitude,
+    rating: p.rating || null, reviews: p.userRatingCount || 0,
+    kind: p.primaryTypeDisplayName?.text || '',
+  }));
+}
+
+/** 근처 식당·카페 (무료 OpenStreetMap, 키 없이) */
+export async function nearbyFoodFree(center, meal, radius = 800) {
+  const q = `[out:json][timeout:15];nwr(around:${radius},${center.lat},${center.lng})[amenity~"^(${FOOD_TYPES[meal].osm})$"][name];out center 30;`;
+  // 무료 서버는 가끔 바쁘거나 막혀 있어서 여러 곳을 차례로 시도
+  const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  let json = null;
+  // 서버들을 차례로 시도하고, 모두 실패하면 2초 쉬고 한 바퀴 더
+  for (let round = 0; round < 2 && !json; round++) {
+    if (round) await new Promise(r => setTimeout(r, 2000));
+    for (const s of servers) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000); // 8초 안에 답 없으면 다음 서버
+      try {
+        const res = await fetch(`${s}?data=${encodeURIComponent(q)}`, { signal: ctl.signal });
+        if (res.ok) { json = await res.json(); break; }
+      } catch { /* 다음 서버로 */ } finally { clearTimeout(timer); }
+    }
+  }
+  if (!json) throw new Error('무료 지도 서버가 응답하지 않아요. 잠시 뒤 다시 해 보세요');
+  const KIND = { cafe: '카페', restaurant: '식당', bakery: '베이커리', fast_food: '간편식', food_court: '푸드코트', pub: '펍', bar: '바' };
+  return (json.elements || []).map(e => {
+    const t = e.tags || {};
+    return {
+      name: t['name:ko'] || t.name, address: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '),
+      lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon,
+      rating: null, reviews: 0,
+      kind: [KIND[t.amenity] || t.amenity, t.cuisine?.split(';')[0]].filter(Boolean).join(' · '),
+      hours: t.opening_hours || '',
+    };
+  }).filter(r => r.name && r.lat != null);
+}
+
 /** 장소 이름이나 주소로 좌표 찾기 */
 export async function searchPlace(key, query) {
   const json = await post(

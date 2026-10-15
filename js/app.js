@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160025';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160036';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160025';
-import { createMap } from './map.js?v=202610160025';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160025';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160025';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160025';
+} from './schedule.js?v=202610160036';
+import { createMap } from './map.js?v=202610160036';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160036';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160036';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160036';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -329,6 +329,9 @@ function renderTimeline() {
   }
   const { legs, sched } = S.cur, ph = isLive() ? phase(d) : null, n = d.items.length;
   const states = d.items.map((_, i) => itemState(d, i, ph));
+  // 식사 시간인데 식당·카페 일정이 없는 자리 → 점선 "식사 추가" 칸 (지난 날은 생략)
+  const gaps = {};
+  if (d.date >= todayStr()) for (const g of mealGaps(d)) (gaps[g.k] ||= []).push(g);
   const rows = d.items.map((it, i) => {
     const s = sched[i], state = states[i], done = state === 'done' || state === 'skip', color = placeColor(i, state);
     let leg = '';
@@ -350,12 +353,47 @@ function renderTimeline() {
         <div class="row-sub">${sub}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
       </div>
       <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
-    </div>`;
+    </div>${(gaps[i] || []).map(g => `<div class="meal-slot" data-act="meal" data-type="${g.type}" data-k="${i}">
+      <span>🍽 ${g.label} 추가 <span class="muted">· ${fmtClock(g.center)} 무렵 · 근처 맛집 추천</span></span>
+      <button class="meal-x" data-act="mealSkip" data-type="${g.type}" aria-label="이 날은 숨기기">✕</button></div>`).join('')}`;
   }).join('');
   const doneCount = states.filter(s => s === 'done' || s === 'skip').length;
   el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows">${rows}</div>
     <button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>
     ${dayNotesHtml(d)}`;
+}
+
+// ---------- 식사 빈칸 찾기 ----------
+const MEALS = [
+  { type: 'brunch', label: '아침·브런치', ws: 7 * 60 + 30, we: 10 * 60 + 30, center: 9 * 60, stay: 45 },
+  { type: 'lunch', label: '점심', ws: 11 * 60 + 30, we: 14 * 60, center: 12 * 60 + 30, stay: 60 },
+  { type: 'dinner', label: '저녁', ws: 17 * 60 + 30, we: 20 * 60 + 30, center: 19 * 60, stay: 75 },
+];
+const FOOD_RE = /식당|레스토랑|음식|맛집|카페|커피|브런치|아침|조식|점심|저녁|식사|디너|런치|그릴|바(?:\s|$)|펍|스낵|음료|베이커리|빵|피시마켓|푸드|야시장|디저트|요치|cafe|coffee|restaurant|grill|bistro|diner|\bbar\b|pub|bakery|brunch|lunch|dinner|breakfast|kitchen|eatery|food/i;
+
+// 이 일정이 식사 자리인지 (이름·메모·설명에서 판단)
+const isFood = it => FOOD_RE.test([it.place, it.memo, ...(it.notes || []).map(n => n.text)].join(' '));
+
+function mealGaps(d) {
+  const sched = S.cur.sched, n = d.items.length;
+  if (n < 2 || sched.length !== n) return [];
+  const startT = sched[0].depart, last = sched[n - 1], endT = last.arrive ?? last.depart;
+  const out = [];
+  for (const m of MEALS) {
+    if (d.skipMeals?.[m.type]) continue;
+    if (startT > m.we - 30 || endT < m.ws + 30) continue; // 그 시간대에 여행 중이 아님
+    const covered = d.items.some((it, i) => {
+      if (!isFood(it)) return false;
+      const a = sched[i].arrive ?? sched[i].depart, b = Math.max(sched[i].depart, a + (it.stay || 0));
+      return a < m.we && b > m.ws;
+    });
+    if (covered) continue;
+    // 그 식사 시각에 머물고 있거나 막 지나온 장소 뒤에 끼워 넣음
+    let k = 0;
+    sched.forEach((s, i) => { if ((s.arrive ?? s.depart) <= m.center) k = i; });
+    out.push({ ...m, k });
+  }
+  return out;
 }
 
 // ---------- 일정 상세 페이지 ----------
@@ -1008,7 +1046,64 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, meal: mealHtml }[sh.type](sh);
+}
+
+// ---------- 식사 장소 추천 ----------
+// 앞 일정(과 다음 일정의 중간) 근처에서 걸어갈 만한 식당·카페를 찾음
+async function openMeal(type, k) {
+  const d = curDay(), m = MEALS.find(x => x.type === type);
+  const prev = d.items[k], next = d.items[k + 1];
+  let center = hasPos(prev) ? prev : next;
+  if (hasPos(prev) && hasPos(next) && haversine(prev, next) < 3000) center = { lat: (prev.lat + next.lat) / 2, lng: (prev.lng + next.lng) / 2 };
+  if (!hasPos(center)) { toast('앞뒤 일정의 위치가 없어서 근처 맛집을 찾을 수 없어요'); return; }
+  S.sheet = { type: 'meal', meal: m, k, center, near: prev.place + (next ? ` ~ ${next.place}` : ''), results: 'loading' };
+  renderSheet();
+  let list = [];
+  try {
+    list = S.settings.apiKey ? await nearbyFood(S.settings.apiKey, center, type) : [];
+    if (!list.length) list = await nearbyFoodFree(center, type);
+    if (!list.length) list = await nearbyFoodFree(center, type, 1500); // 가까이 없으면 조금 더 넓게
+  } catch (e) {
+    toast(`맛집 찾기 실패: ${e.message}`, 5000);
+  }
+  if (S.sheet?.type !== 'meal' || S.sheet.k !== k) return;
+  list.forEach(r => (r.d = haversine(center, r)));
+  // 구글 결과는 평점·리뷰 많은 순, 무료 지도 결과는 가까운 순
+  list.sort((a, b) => (b.rating && a.rating ? (b.rating * Math.log10(b.reviews + 10)) - (a.rating * Math.log10(a.reviews + 10)) : a.d - b.d));
+  S.sheet.results = list.slice(0, 8);
+  renderSheet();
+}
+
+function mealHtml(sh) {
+  let body;
+  if (sh.results === 'loading') body = '<div class="muted pad">근처 맛집을 찾는 중…</div>';
+  else if (!sh.results.length) body = '<div class="muted pad">근처에서 찾지 못했어요. 지도 앱에서 직접 찾아보세요.</div>';
+  else body = sh.results.map((r, j) => `<div class="food-card">
+      <div class="food-top"><div class="food-name">${esc(r.name)}</div>${r.rating ? `<div class="food-rate">★ ${r.rating.toFixed(1)} <span class="muted small">(${r.reviews.toLocaleString()})</span></div>` : ''}</div>
+      <div class="food-meta">${[r.kind, `🚶 ${fmtDist(r.d)} · 약 ${fmtDur(estimateMin(r.d, 'WALK'))}`, r.hours].filter(Boolean).map(esc).join(' · ')}</div>
+      <div class="chips"><button class="chip-btn on" data-act="mealAdd" data-j="${j}">＋ 일정에 넣기</button><button class="chip-btn" data-act="mealMap" data-j="${j}">🗺️ 지도</button><button class="chip-btn" data-act="mealNav" data-j="${j}">길안내</button></div>
+    </div>`).join('');
+  const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${sh.meal.type === 'brunch' ? 'brunch cafe' : 'restaurant'} near ${sh.center.lat},${sh.center.lng}`)}`;
+  return `<div class="sheet-head"><div><div class="st-label">${esc(sh.near)} 근처 · ${fmtClock(sh.meal.center)} 무렵</div><b>🍽 ${sh.meal.label} 추천</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    ${!S.settings.apiKey ? '<div class="muted small pad">무료 지도 기준 가까운 순이에요. 설정에 구글 키를 넣으면 평점 높은 순으로 보여줘요.</div>' : ''}
+    ${body}
+    <div class="st-actions"><button data-act="poiWeb" data-url="${esc(web)}">지도 앱에서 더 찾아보기</button></div>`;
+}
+
+// 추천 식당을 그 자리(앞 일정 바로 뒤)에 넣기
+function mealAdd(r) {
+  const sh = S.sheet, d = curDay();
+  // 식사 시각에 맞춰 도착하도록 (앞 장소 도착 뒤 30분은 머물게)
+  const prevS = S.cur.sched[sh.k], prevArr = prevS ? (prevS.arrive ?? prevS.depart) : 0;
+  const at = Math.max(sh.meal.center, prevArr + 30);
+  d.items.splice(sh.k + 1, 0, {
+    id: newId(), place: r.name, address: r.address || '', lat: r.lat, lng: r.lng, time: at, stay: sh.meal.stay,
+    mode: r.d < 1200 ? 'WALK' : 'TRANSIT', memo: `${sh.meal.label} (추천${r.rating ? ` · ★${r.rating.toFixed(1)}` : ''})`,
+    notes: r.kind ? [{ label: '설명', text: r.kind }] : [],
+  });
+  savePlan(); recompute(); closeSheet(); renderAll(false); prefetchLegs(); scheduleAlarms();
+  toast(`${r.name}을(를) ${sh.meal.label} 일정으로 넣었어요`);
 }
 
 // ---------- 주변 추천 장소 ----------
@@ -1699,6 +1794,22 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'meal': openMeal(el.dataset.type, +el.dataset.k); break;
+    case 'mealSkip': {
+      (d.skipMeals ||= {})[el.dataset.type] = true;
+      savePlan(); renderTimeline();
+      toast('이 날은 그 식사 추천을 숨겼어요');
+      break;
+    }
+    case 'mealAdd': mealAdd(S.sheet.results[+el.dataset.j]); break;
+    case 'mealMap': {
+      const sh = S.sheet, r = sh.results[+el.dataset.j];
+      S.poi = { lat: r.lat, lng: r.lng, name: r.name, from: sh.k };
+      closeSheet();
+      openMap(sh.k, 'bottom');
+      break;
+    }
+    case 'mealNav': { const r = S.sheet.results[+el.dataset.j]; openExternal(navUrl(null, r, 'WALK', r.name)); break; }
     case 'fixPlace': {
       // 위치 없는 장소: 수정 창을 열고 장소 이름으로 바로 검색해 둠 → 결과에서 고르기만
       const it = d.items[i];
