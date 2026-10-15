@@ -136,7 +136,8 @@ function parseRows(rows, hi, fallbackDate) {
     date: find(/날짜|일자|date/),
     stay: find(/체류|머무|stay|duration/),
     time: find(/시간|시각|time/, /체류|머무|소요|stay|duration/),
-    place: find(/장소|목적지|place/),
+    place: find(/장소|목적지|place/, /영문|영어|english/),
+    nameEn: find(/영문|영어|english/),
     address: find(/주소|address/),
     lat: find(/위도|^lat/),
     lng: find(/경도|^lng|^lon/),
@@ -187,6 +188,7 @@ function parseRows(rows, hi, fallbackDate) {
     const item = {
       notes,
       place,
+      nameEn: String(cell(r, 'nameEn')).trim(),
       address,
       lat: ok ? lat : null,
       lng: ok ? lng : null,

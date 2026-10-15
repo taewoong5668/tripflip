@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160056';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160103';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160056';
-import { createMap } from './map.js?v=202610160056';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160056';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160056';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160056';
+} from './schedule.js?v=202610160103';
+import { createMap } from './map.js?v=202610160103';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160103';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160103';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160103';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1110,13 +1110,21 @@ const WEB_URL = 'https://taewoong5668.github.io/tripflip/';
 const AI_PROMPT = `아래 여행 계획을 엑셀(.xlsx) 파일 하나로 만들어줘. "일정" 시트 하나에 표 하나만.
 
 열(머리글)은 정확히 이 이름으로:
-날짜 | 시간 | 장소 | 주소(검색어) | 체류(분) | 이동수단 | 설명 | 주변 추천 | 메모
+날짜 | 시간 | 장소 | 영문 이름 | 주소 | 체류(분) | 이동수단 | 설명 | 주변 추천 | 메모
 
-규칙:
+가장 중요한 규칙 (앱이 이 칸으로 지도 위치를 찾아요):
+- 내가 한글·영어·현지어 중 무엇으로 적었든, 어느 장소인지 정확히 알아내서 실제로 있는 장소로 확정해 줘
+- 같은 이름의 가게·지점이 여러 곳이면 그날 동선(숙소·앞뒤 장소)에 맞는 지점을 골라 줘
+- 영문 이름: 구글맵에 등록된 공식 영어 이름 (예: Hurricanes Grill & Bar Bondi Beach)
+- 주소: 그 장소의 실제 주소를 영어로, "번지 도로명, 동네, 도시 우편번호, 국가" 순서로 쉼표로 나눠서. 장소 이름은 넣지 말기
+  (예: 130 Roscoe St, Bondi Beach, Sydney NSW 2026, Australia)
+- 웹 검색을 할 수 있으면 검색해서 주소를 확인해 줘. 확실하지 않은 주소는 지어내지 말고 아는 만큼만(동네, 도시, 국가) 적고, 메모에 "주소 확인 필요"라고 적어 줘
+
+나머지 규칙:
+- 장소: 내가 부르는 이름 그대로 (한글 가능)
 - 한 줄 = 장소 하나, 방문 순서대로
 - 날짜: 2026-11-03 형식, 그날 첫 줄에만 적기
 - 시간: 그날 첫 줄(숙소)은 출발 시간, 나머지는 예약처럼 꼭 맞춰야 하는 도착 시간만 HH:MM으로 (나머지는 비우기)
-- 주소(검색어): 구글맵에서 찾을 수 있는 영어 장소 이름 + 도시 (예: Meiji Jingu Shrine Tokyo)
 - 체류(분): 머무는 시간 숫자
 - 이동수단: 그 장소까지 가는 방법, 도보/대중교통/차량/자전거 중 하나
 - 주변 추천: "a. 장소  b. 장소  c. 장소" 형식
@@ -1362,7 +1370,7 @@ const resultsHtml = (list, act) => list == null ? ''
       const far = ref ? ` · ${fmtDist(haversine(ref, r))}` : '';
       return `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}<span class="muted small">${far}</span></b><span class="muted small">${esc(r.address)}</span></button>`;
     }).join('')}</div>`
-      : '<div class="muted pad">검색 결과가 없어요.${S.settings.apiKey ? ' 다른 이름으로 검색해 보세요.' : '<br>무료 지도는 해외 가게의 한글 이름을 잘 몰라요. <b>영어 이름 + 도시</b>(예: Hurricanes Grill Sydney)로 검색하거나 🗺️ 지도로 보기에서 직접 골라 주세요.'}</div>';
+      : `<div class="muted pad">검색 결과가 없어요.${S.settings.apiKey ? ' 다른 이름으로 검색해 보세요.' : '<br>무료 지도는 해외 가게의 한글 이름을 잘 몰라요. <b>영어 이름 + 도시</b>(예: Hurricanes Grill Sydney)로 검색하거나 🗺️ 지도로 보기에서 직접 골라 주세요.'}</div>`;
 
 function placeBox(p, empty) {
   if (!hasPos(p)) return `<div class="muted">${empty}</div>`;
@@ -1829,6 +1837,32 @@ async function findPlace(q, anchor) {
   return g || null;
 }
 
+// 엑셀의 정확한 주소 + 영문 이름으로 위치 찾기 (무료 지도는 "이름, 주소"를 한꺼번에 넣으면 못 찾음)
+// ① 주소 그대로 → ② 주소의 동네를 찾고 그 근처에서 영문 이름/장소 이름 → ③ 동네 위치(대략) → ④ 이름으로(예전 방식)
+async function locate(it, anchor) {
+  const addr = (it.address || '').trim(), names = [...new Set([it.nameEn, it.place].filter(Boolean))];
+  const parts = addr.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const g = await findPlace(addr, anchor);
+    if (g) return g;
+    // 번지(첫 칸)를 하나씩 떼면서 동네·도시 위치 찾기
+    let area = null;
+    for (let k = 1; k <= parts.length - 2 && !area; k++) area = await findPlace(parts.slice(k).join(', '), anchor);
+    if (area) {
+      for (const n of names) {
+        const g2 = await findPlace(n, area); // 동네 근처부터 찾고, 없으면 같은 지역(수백 km) 안에서
+        if (g2) return g2;
+      }
+      return area;
+    }
+  }
+  for (const q of [...new Set([parts.length >= 2 ? '' : addr, ...names])].filter(Boolean)) {
+    const g = await findPlace(q, anchor);
+    if (g) return g;
+  }
+  return null;
+}
+
 let geocoding = false;
 async function geocodeMissing() {
   if (geocoding) return;
@@ -1845,9 +1879,7 @@ async function geocodeMissing() {
         let g = S.geoCache[q];
         if (!g) {
           try {
-            g = await findPlace(q, anchorFor(d, it));
-            // 주소로 못 찾으면 장소 이름으로 한 번 더
-            if (!g && it.address && it.place && it.place !== it.address) g = await findPlace(it.place, anchorFor(d, it));
+            g = await locate(it, anchorFor(d, it));
           } catch (e) { toast(`장소 검색 실패: ${e.message}`, 5000); return; }
         }
         if (!g) { failed++; continue; }
