@@ -252,6 +252,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .add-btn { width: 100%; margin-top: 14px; padding: 14px; border: 1.5px dashed color-mix(in srgb, var(--accent) 50%, transparent); background: var(--accent-soft); color: var(--accent); border-radius: var(--radius); font-weight: 800; }
 
 .empty { background: var(--card); border-radius: 22px; padding: 22px 20px; box-shadow: var(--shadow); }
+.empty-icon { font-size: 40px; margin-bottom: 4px; }
+.from-line { background: var(--card-2); border-radius: 12px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
+.pick-row { margin-top: 8px; }
+.section { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.section-title { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
+.picked.origin { background: var(--ok-soft); margin-top: 0; }
+.leg-preview { margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 8px 12px; }
+.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 6px; font-size: 13px; font-weight: 700; color: var(--text); }
+.seg button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .empty h2 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.02em; }
 .empty p { color: var(--muted); font-size: 14px; margin: 0 0 6px; }
 .empty .st-actions button { border: 1px solid var(--line); background: var(--card-2); border-radius: 12px; padding: 10px 14px; font-weight: 700; }

@@ -315,11 +315,13 @@ function renderTimeline() {
   const el = $('#timeline'), d = curDay(), date = S.selected;
   if (!date) { el.innerHTML = ''; return; }
   if (!d || !d.items.length) {
+    const [, mm, dd] = date.split('-').map(Number);
     el.innerHTML = `<div class="empty">
-        <h2>아직 일정이 없어요</h2>
-        <p>첫 장소(출발지, 보통 숙소)부터 추가하세요. 장소를 하나씩 추가하면 동선과 출발 시간이 자동으로 계산되고 지도에 표시돼요.</p>
+        <div class="empty-icon">🧳</div>
+        <h2>${date === todayStr() ? '오늘 떠날 여행' : `${mm}월 ${dd}일 떠날 여행`}</h2>
+        <p>가고 싶은 곳(도착지)을 고르고, 어디서 출발할지 정하면 동선과 출발 시간이 자동으로 계산되고 지도에 표시돼요.</p>
         <p class="muted small">← 화면을 좌우로 밀면 다른 날짜로 넘어가요 →</p>
-        <div class="st-actions"><button class="primary" data-act="addPlace" data-i="0">＋ 출발지 추가</button>
+        <div class="st-actions"><button class="primary" data-act="addPlace" data-i="0">＋ 어디로 갈까요?</button>
         ${S.plan.days.length ? '' : '<button data-act="load">엑셀 일정 불러오기</button>'}</div>
       </div>`;
     return;
@@ -440,10 +442,12 @@ function renderMap(fit) {
   });
   // 추가/수정 중인 장소 미리보기
   const dr = S.sheet?.type === 'edit' ? S.sheet.draft : null;
+  const og = S.sheet?.type === 'edit' && S.sheet.trip ? S.sheet.origin : null;
+  if (hasPos(og)) places.push({ lat: og.lat, lng: og.lng, label: '출', color: '#43a047', shape: 'square', ring: true, z: 19, title: og.place });
   if (hasPos(dr)) places.push({ lat: dr.lat, lng: dr.lng, label: '＋', color: '#fdd835', textColor: '#000', ring: true, z: 20, title: dr.place });
   S.map.setPlaces(places);
   drawLines();
-  if (fit) S.map.fit(hasPos(dr) ? [...pts, dr] : pts);
+  if (fit) S.map.fit([...pts, ...[og, dr].filter(hasPos)]);
 }
 
 // 동선 선: 장소 사이(그 장소 색, 선택한 구간은 굵게), 경로 추천에서 고른 길, 내 위치 → 다음 장소 실시간 길(파란 굵은 선)
@@ -461,7 +465,7 @@ function drawLines() {
   });
   const sh = S.sheet;
   if (sh?.type === 'edit' && hasPos(sh.draft)) {
-    const prev = d?.items[sh.index - 1];
+    const prev = sh.trip ? sh.origin : d?.items[sh.index - 1];
     if (hasPos(prev) && !sh.id) lines.push({ path: [prev, sh.draft], color: '#fdd835', dashed: true, width: 3 });
   }
   if (S.routeView) lines.push({ path: S.routeView.path, color: S.routeView.color, width: 7, opacity: 0.95, z: 7 });
@@ -929,14 +933,39 @@ function calendarHtml() {
 const toHHMM = min => (min == null ? '' : `${String(Math.floor(min / 60) % 24).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`);
 const fromHHMM = s => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? +m[1] * 60 + +m[2] : null; };
 
+const HOTEL_RE = /호텔|숙소|리조트|게스트하우스|에어비앤비|메리턴|풀러턴|hotel|suites|resort|hostel|airbnb/i;
+const blankPlace = () => ({ place: '', address: '', lat: null, lng: null });
+
+// 그날 전에 묵은 숙소(가장 가까운 이전 날의 마지막 숙소)
+function prevHotel(date) {
+  const days = S.plan.days.filter(d => d.date < date && d.items.length);
+  const d = days[days.length - 1];
+  if (!d) return null;
+  return [...d.items].reverse().find(it => HOTEL_RE.test(it.place) && hasPos(it)) || null;
+}
+
+const roundUp10 = min => Math.ceil(min / 10) * 10;
+const nowMin = () => { const t = new Date(); return t.getHours() * 60 + t.getMinutes(); };
+
 function openEditor(index, id) {
   const d = curDay(), date = S.selected;
   const it = id ? d.items.find(x => x.id === id) : null;
   const prevMode = d?.items[index - 1]?.mode;
-  S.sheet = {
-    type: 'edit', date, index, id: it?.id || null, results: null, query: '',
-    draft: it ? { ...it } : { place: '', address: '', lat: null, lng: null, time: null, stay: index === 0 ? 0 : 60, mode: index === 0 ? 'TRANSIT' : prevMode || 'TRANSIT', memo: '', notes: [] },
+  // 빈 날에 처음 넣는 일정: 도착지와 출발지를 한 화면에서 같이 정함
+  const trip = !it && !(d?.items.length);
+  const sh = {
+    type: 'edit', date, index, id: it?.id || null, results: null, query: '', trip,
+    draft: it ? { ...it } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
   };
+  if (trip) {
+    const h = prevHotel(date);
+    sh.origin = h ? { place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }
+      : S.pos ? { place: '현재 위치', address: '', lat: S.pos.lat, lng: S.pos.lng, from: 'here' } : blankPlace();
+    sh.oQuery = ''; sh.oResults = null;
+    sh.timeMode = 'dep';
+    sh.tval = date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 50) : 9 * 60;
+  }
+  S.sheet = sh;
   S.routeView = null;
   renderSheet();
   renderMap(false);
@@ -948,74 +977,126 @@ function syncDraft() {
   if (sh?.type !== 'edit' || S.pick) return;
   const dr = sh.draft, v = id => $(id)?.value;
   if ($('#edQuery')) sh.query = v('#edQuery');
+  if ($('#orQuery')) sh.oQuery = v('#orQuery');
   if ($('#edName')) dr.place = v('#edName').trim();
   if ($('#edTime')) dr.time = fromHHMM(v('#edTime'));
+  if ($('#trTime')) sh.tval = fromHHMM(v('#trTime'));
   if ($('#edStay')) dr.stay = Math.max(0, parseInt(v('#edStay'), 10) || 0);
   if ($('#edMemo')) dr.memo = v('#edMemo');
 }
 
-function editHtml(sh) {
-  const dr = sh.draft, d = curDay(), first = sh.index === 0;
-  const prev = d?.items[sh.index - 1];
-  let info = '<div class="muted">아직 위치를 고르지 않았어요</div>';
-  if (hasPos(dr)) {
-    const bits = [];
-    if (S.pos) bits.push(`내 위치에서 ${fmtDist(haversine(S.pos, dr))}`);
-    if (hasPos(prev)) { const dist = haversine(prev, dr); bits.push(`이전 장소에서 ${fmtDist(dist)} · ${MODES[dr.mode].icon} 약 ${fmtDur(estimateMin(dist, dr.mode))}`); }
-    info = `<div>📍 <b>${esc(dr.place || '선택한 위치')}</b></div>${dr.address ? `<div class="muted small">${esc(dr.address)}</div>` : ''}${bits.length ? `<div class="small">${bits.join(' · ')}</div>` : ''}`;
-  }
-  const results = sh.results == null ? ''
-    : sh.results === 'loading' ? '<div class="muted pad">검색 중…</div>'
-      : sh.results.length ? `<div class="results">${sh.results.map((r, k) => `<button data-act="edChoose" data-k="${k}"><b>${esc(r.name)}</b><span class="muted small">${esc(r.address)}</span></button>`).join('')}</div>`
-        : '<div class="muted pad">검색 결과가 없어요. 다른 이름이나 영어로 검색해 보세요.</div>';
-  const stayChips = [0, 30, 60, 90, 120, 180].map(m => `<button class="chip-btn ${dr.stay === m ? 'on' : ''}" data-act="edStayQuick" data-m="${m}">${m ? fmtDur(m) : '없음'}</button>`).join('');
-  const modes = Object.entries(MODES).map(([k, m]) => `<button class="chip-btn ${dr.mode === k ? 'on' : ''}" data-act="edMode" data-mode="${k}">${m.icon} ${m.label}</button>`).join('');
-  return `<div class="sheet-head"><div><div class="st-label">${dayLabel(sh.date)} · ${sh.id ? '장소 수정' : first ? '출발지 추가' : `${sh.index + 1}번째 장소 추가`}</div>
-      <b>${first ? '어디서 출발하나요?' : '어디로 가나요?'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
-    <div class="search-row"><input id="edQuery" placeholder="장소 이름이나 주소 (예: 시드니 오페라하우스)" value="${esc(sh.query)}" enterkeyhint="search"><button class="primary" data-act="edSearch">검색</button></div>
-    ${results}
-    <button class="link" data-act="edPick">🗺️ 지도에서 직접 고르기</button>
-    <div class="picked">${info}</div>
-    <label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>
-    <label class="field">${first ? '출발 시각' : '도착 시각 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}<input id="edTime" type="time" value="${toHHMM(dr.time)}"></label>
-    <div class="field">체류 시간<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>
-    ${first ? '' : `<div class="field">여기까지 이동 방법<div class="chips">${modes}</div></div>`}
-    <label class="field">메모<textarea id="edMemo" rows="2" placeholder="예약 번호, 할 일 등">${esc(dr.memo)}</textarea></label>
-    <div class="st-actions"><button class="primary" data-act="edSave">저장</button>${sh.id ? '<button data-act="delPlace" data-id="' + sh.id + '" class="danger">삭제</button>' : ''}<button data-act="closeSheet">취소</button></div>`;
+const resultsHtml = (list, act) => list == null ? ''
+  : list === 'loading' ? '<div class="muted pad">검색 중…</div>'
+    : list.length ? `<div class="results">${list.map((r, k) => `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}</b><span class="muted small">${esc(r.address)}</span></button>`).join('')}</div>`
+      : '<div class="muted pad">검색 결과가 없어요. 다른 이름이나 영어로 검색해 보세요.</div>';
+
+function placeBox(p, empty) {
+  if (!hasPos(p)) return `<div class="muted">${empty}</div>`;
+  const me = S.pos && p.from !== 'here' ? `<div class="small">내 위치에서 ${fmtDist(haversine(S.pos, p))}</div>` : '';
+  return `<div>📍 <b>${esc(p.place || '선택한 위치')}</b></div>${p.address ? `<div class="muted small">${esc(p.address)}</div>` : ''}${me}`;
 }
 
-async function edSearch() {
+function editHtml(sh) {
+  const dr = sh.draft, d = curDay(), isStart = !sh.trip && sh.index === 0;
+  const from = sh.trip ? sh.origin : d?.items[sh.index - 1];
+  const stayChips = [0, 30, 60, 90, 120, 180].map(m => `<button class="chip-btn ${dr.stay === m ? 'on' : ''}" data-act="edStayQuick" data-m="${m}">${m ? fmtDur(m) : '없음'}</button>`).join('');
+  const modes = Object.entries(MODES).map(([k, m]) => `<button class="chip-btn ${dr.mode === k ? 'on' : ''}" data-act="edMode" data-mode="${k}">${m.icon} ${m.label}</button>`).join('');
+  const legInfo = hasPos(from) && hasPos(dr)
+    ? `<div class="leg-preview">${MODES[dr.mode].icon} ${esc(from.place)} → ${esc(dr.place || '도착지')} · ${fmtDist(haversine(from, dr))} · 약 ${fmtDur(estimateMin(haversine(from, dr), dr.mode))}</div>` : '';
+  const title = sh.id ? (isStart ? '출발지 수정' : '장소 수정') : sh.trip ? '새 일정' : `${sh.index + 1}번째 장소 추가`;
+
+  // 1) 도착지 (출발지 수정일 때는 출발지)
+  let html = `<div class="sheet-head"><div><div class="st-label">${dayLabel(sh.date)} · ${title}</div>
+      <b>${isStart ? '어디서 출발하나요?' : '어디로 가나요?'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    ${!sh.trip && !isStart && from ? `<div class="from-line">출발: <b>${esc(from.place)}</b>에서 <span class="muted small">(바로 앞 장소)</span></div>` : ''}
+    <div class="search-row"><input id="edQuery" placeholder="${isStart ? '출발지 검색 (예: 숙소 이름)' : '도착지 이름이나 주소 (예: 시드니 오페라하우스)'}" value="${esc(sh.query)}" enterkeyhint="search"><button class="primary" data-act="edSearch">검색</button></div>
+    ${resultsHtml(sh.results, 'edChoose')}
+    <div class="chips pick-row"><button class="chip-btn" data-act="edPick">🗺️ 지도에서 고르기</button>${isStart ? '<button class="chip-btn" data-act="edHere">📍 현재 위치로</button>' : ''}</div>
+    <div class="picked">${placeBox(dr, isStart ? '아직 출발지를 고르지 않았어요' : '아직 도착지를 고르지 않았어요')}</div>
+    <label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>`;
+
+  // 2) 출발지 (빈 날 첫 일정일 때만, 같은 화면에서)
+  if (sh.trip) {
+    const h = prevHotel(sh.date);
+    html += `<div class="section">
+      <div class="section-title">어디서 출발하나요?</div>
+      <div class="picked origin">${placeBox(sh.origin, '아직 출발지를 고르지 않았어요')}</div>
+      <div class="chips pick-row">
+        <button class="chip-btn ${sh.origin.from === 'here' ? 'on' : ''}" data-act="orHere">📍 현재 위치로</button>
+        ${h ? `<button class="chip-btn ${sh.origin.from === 'hotel' ? 'on' : ''}" data-act="orHotel">🏨 ${esc(h.place)}</button>` : ''}
+      </div>
+      <div class="search-row"><input id="orQuery" placeholder="출발지 검색 (숙소, 역 등)" value="${esc(sh.oQuery)}" enterkeyhint="search"><button data-act="orSearch">검색</button></div>
+      ${resultsHtml(sh.oResults, 'orChoose')}
+    </div>
+    ${legInfo}
+    <div class="field">시간 기준
+      <div class="seg"><button class="${sh.timeMode === 'dep' ? 'on' : ''}" data-act="trMode" data-m="dep">출발 시각 정하기</button><button class="${sh.timeMode === 'arr' ? 'on' : ''}" data-act="trMode" data-m="arr">도착 시각 정하기 (예약 등)</button></div>
+      <input id="trTime" type="time" value="${toHHMM(sh.tval)}">
+      <span class="muted small">${sh.timeMode === 'dep' ? '이 시각에 출발지에서 떠나요. 도착 시각은 자동 계산돼요.' : '이 시각까지 도착하도록 출발 시각을 거꾸로 계산해요.'}</span>
+    </div>`;
+  } else {
+    html += legInfo + `<label class="field">${isStart ? '출발 시각' : '도착 시각 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}<input id="edTime" type="time" value="${toHHMM(dr.time)}"></label>`;
+  }
+
+  html += `<div class="field">${isStart ? '출발 전 머무는 시간' : '도착해서 머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>
+    ${isStart ? '' : `<div class="field">이동 방법<div class="chips">${modes}</div></div>`}
+    <label class="field">메모<textarea id="edMemo" rows="2" placeholder="예약 번호, 할 일 등">${esc(dr.memo)}</textarea></label>
+    <div class="st-actions"><button class="primary" data-act="edSave">저장</button>${sh.id ? '<button data-act="delPlace" data-id="' + sh.id + '" class="danger">삭제</button>' : ''}<button data-act="closeSheet">취소</button></div>`;
+  return html;
+}
+
+async function edSearch(target = 'dest') {
   syncDraft();
-  const sh = S.sheet, q = (sh.query || '').trim();
+  const sh = S.sheet, origin = target === 'origin';
+  const q = ((origin ? sh.oQuery : sh.query) || '').trim();
   if (!q) { toast('검색할 장소를 적어 주세요'); return; }
-  sh.results = 'loading';
+  if (origin) sh.oResults = 'loading'; else sh.results = 'loading';
   renderSheet();
   const d = curDay();
-  const near = d?.items.find(hasPos) || S.pos || null;
+  const near = d?.items.find(hasPos) || (hasPos(sh.origin) ? sh.origin : null) || S.pos || null;
+  let res;
   try {
-    sh.results = S.settings.apiKey ? await searchPlaces(S.settings.apiKey, q, near) : await searchPlacesFree(q);
+    res = S.settings.apiKey ? await searchPlaces(S.settings.apiKey, q, near) : await searchPlacesFree(q);
   } catch (e) {
-    sh.results = [];
+    res = [];
     toast(`검색 실패: ${e.message}`, 5000);
   }
-  if (S.sheet === sh) renderSheet();
+  if (S.sheet !== sh) return;
+  if (origin) sh.oResults = res; else sh.results = res;
+  renderSheet();
 }
 
 function edChoose(k) {
   syncDraft();
   const sh = S.sheet, r = sh.results[k];
   Object.assign(sh.draft, { lat: r.lat, lng: r.lng, address: r.address });
-  if (!sh.draft.place || sh.draft.place === '선택한 위치') sh.draft.place = r.name;
+  if (!sh.draft.place || sh.draft.place === '선택한 위치' || sh.draft.place === '현재 위치') sh.draft.place = r.name;
   sh.results = null;
   renderSheet();
   renderMap(false);
   S.map?.panTo(r, 16);
 }
 
+function setOrigin(p) {
+  syncDraft();
+  const sh = S.sheet;
+  sh.origin = p;
+  sh.oResults = null;
+  renderSheet();
+  renderMap(false);
+}
+
+function hereOrToast() {
+  if (S.pos) return { lat: S.pos.lat, lng: S.pos.lng };
+  toast('아직 내 위치를 찾는 중이에요. 위치 권한을 확인해 주세요', 4000);
+  return null;
+}
+
 function edSave() {
   syncDraft();
   const sh = S.sheet, dr = sh.draft;
-  if (!dr.place) { toast('장소 이름을 적어 주세요'); return; }
+  if (!dr.place) { toast(sh.trip ? '도착지를 골라 주세요' : '장소 이름을 적어 주세요'); return; }
+  if (sh.trip && !hasPos(sh.origin)) { toast('출발지를 골라 주세요 (현재 위치 버튼이나 검색)'); return; }
   if (!hasPos(dr) && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return;
   const d = ensureDay(sh.date);
   const item = {
@@ -1023,7 +1104,13 @@ function edSave() {
     time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [],
   };
   if (dr.auto) item.auto = true;
-  if (sh.id) d.items[d.items.findIndex(x => x.id === sh.id)] = item;
+  if (sh.trip) {
+    // 출발지 + 도착지를 한 번에 만듦
+    const o = sh.origin;
+    const start = { id: newId(), place: o.place, address: o.address || '', lat: o.lat, lng: o.lng, time: null, stay: 0, mode: 'TRANSIT', memo: '', notes: [] };
+    if (sh.timeMode === 'dep') { start.time = sh.tval; item.time = null; } else { item.time = sh.tval; }
+    d.items.splice(0, 0, start, item);
+  } else if (sh.id) d.items[d.items.findIndex(x => x.id === sh.id)] = item;
   else d.items.splice(sh.index, 0, item);
   savePlan();
   recompute();
@@ -1031,7 +1118,7 @@ function edSave() {
   renderAll(true);
   prefetchLegs();
   scheduleAlarms();
-  toast(sh.id ? '수정했어요' : `${item.place} 저장했어요. 지도에 표시했어요`);
+  toast(sh.id ? '수정했어요' : sh.trip ? `${sh.origin.place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
 }
 
 function deletePlace(d, idx) {
@@ -1280,8 +1367,23 @@ async function act(name, el) {
     case 'delPlace': deletePlace(d, el.dataset.id ? d.items.findIndex(x => x.id === el.dataset.id) : i); break;
     case 'moveUp': movePlace(d, i, -1); break;
     case 'moveDown': movePlace(d, i, 1); break;
-    case 'edSearch': edSearch(); break;
+    case 'edSearch': edSearch('dest'); break;
     case 'edChoose': edChoose(+el.dataset.k); break;
+    case 'orSearch': edSearch('origin'); break;
+    case 'orChoose': { const r = S.sheet.oResults[+el.dataset.k]; setOrigin({ place: r.name, address: r.address, lat: r.lat, lng: r.lng, from: 'search' }); break; }
+    case 'orHere': { const p = hereOrToast(); if (p) setOrigin({ place: '현재 위치', address: '', ...p, from: 'here' }); break; }
+    case 'orHotel': { const h = prevHotel(S.sheet.date); if (h) setOrigin({ place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }); break; }
+    case 'edHere': {
+      const p = hereOrToast();
+      if (!p) break;
+      syncDraft();
+      const dr = S.sheet.draft;
+      Object.assign(dr, { ...p, address: '' });
+      if (!dr.place) dr.place = '현재 위치';
+      renderSheet(); renderMap(false);
+      break;
+    }
+    case 'trMode': syncDraft(); S.sheet.timeMode = el.dataset.m; renderSheet(); break;
     case 'edPick':
       syncDraft();
       S.pick = true; S.pickReturn = topLayer();
@@ -1415,7 +1517,8 @@ document.addEventListener('click', e => {
   if (tab) selectDay(tab.dataset.date, true);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch(); }
+  if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch('dest'); }
+  if (e.key === 'Enter' && e.target.id === 'orQuery') { e.preventDefault(); edSearch('origin'); }
 });
 
 // ---------- 손가락을 따라 움직이는 화면 넘기기 ----------
