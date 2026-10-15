@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160000';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160018';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160000';
-import { createMap } from './map.js?v=202610160000';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160000';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160000';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160000';
+} from './schedule.js?v=202610160018';
+import { createMap } from './map.js?v=202610160018';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js?v=202610160018';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160018';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160018';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1062,7 +1062,7 @@ function poiAdd(r, i) {
 function closeSheet() {
   // 저장하지 않고 닫은 수정 창에서 새로 첨부한 파일은 지움
   if (S.sheet?.type === 'edit' && !S.sheet.saved) (S.sheet.added || []).forEach(id => deleteFile(id).catch(() => {}));
-  S.sheet = null; S.routeView = null; S.pick = false;
+  S.sheet = null; S.routeView = null; S.pick = false; S.tp = null;
   renderSheet(); renderMap(false);
 }
 
@@ -1125,6 +1125,7 @@ function openEditor(index, id) {
   }
   S.sheet = sh;
   S.routeView = null;
+  S.tp = null;
   renderSheet();
   renderMap(false);
 }
@@ -1152,6 +1153,73 @@ function placeBox(p, empty) {
   if (!hasPos(p)) return `<div class="muted">${empty}</div>`;
   const me = S.pos && p.from !== 'here' ? `<div class="small">내 위치에서 ${fmtDist(haversine(S.pos, p))}</div>` : '';
   return `<div>📍 <b>${esc(p.place || '선택한 위치')}</b></div>${p.address ? `<div class="muted small">${esc(p.address)}</div>` : ''}${me}`;
+}
+
+// ---------- 손가락으로 고르는 시간 선택기 (키보드 없이 오전/오후 → 시 → 분) ----------
+const fmtAmPm = min => {
+  if (min == null) return '';
+  const h = Math.floor(min / 60) % 24, m = min % 60;
+  return `${h < 12 ? '오전' : '오후'} ${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}`;
+};
+
+// 시간 칸: 지금 값을 크게 보여주는 버튼 + (열려 있으면) 고르는 판. 값은 숨은 칸(id)에도 넣어 둠
+function timeField(id, min, { placeholder = '시간 고르기', clearable = false } = {}) {
+  const open = S.tp?.id === id;
+  let panel = '';
+  if (open) {
+    const { ampm, h, m } = S.tp;
+    panel = `<div class="tp-panel">
+      <div class="seg tp-ampm"><button class="${ampm === 'am' ? 'on' : ''}" data-act="tpAmpm" data-v="am">오전</button><button class="${ampm === 'pm' ? 'on' : ''}" data-act="tpAmpm" data-v="pm">오후</button></div>
+      <div class="tp-label">시</div>
+      <div class="tp-grid">${[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(x => `<button class="${h === x ? 'on' : ''}" data-act="tpH" data-v="${x}">${x}</button>`).join('')}</div>
+      <div class="tp-label">분</div>
+      <div class="tp-grid">${[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(x => `<button class="${m === x ? 'on' : ''}" data-act="tpM" data-v="${x}">${String(x).padStart(2, '0')}</button>`).join('')}</div>
+      <button class="tp-done" data-act="tpDone">확인</button>
+    </div>`;
+  }
+  return `<input type="hidden" id="${id}" value="${toHHMM(min)}">
+    <div class="tp-row">
+      <button class="time-pick ${open ? 'open' : ''}" data-act="tpOpen" data-id="${id}">
+        <span class="tp-ico">🕐</span><span class="tp-val ${min == null ? 'empty' : ''}">${min == null ? placeholder : fmtAmPm(min)}</span>
+      </button>
+      ${clearable && min != null ? `<button class="tp-clear" data-act="tpClear" data-id="${id}">지우기</button>` : ''}
+    </div>${panel}`;
+}
+
+// 시간 칸 id → 실제로 저장되는 곳
+function getTime(id) {
+  const sh = S.sheet;
+  return id === 'edTime' ? sh.draft.time : id === 'trTime' ? sh.tval : id === 'wkTime' ? sh.time : null;
+}
+function setTime(id, min) {
+  const sh = S.sheet;
+  if (id === 'edTime') sh.draft.time = min;
+  else if (id === 'trTime') sh.tval = min;
+  else if (id === 'wkTime') sh.time = min;
+}
+
+function tpAct(name, el) {
+  if (S.sheet?.type === 'edit') syncDraft(); else syncWake();
+  if (name === 'tpOpen') {
+    const id = el.dataset.id;
+    if (S.tp?.id === id) { S.tp = null; renderSheet(); return; }
+    const cur = getTime(id) ?? (S.sheet.date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 55) : 9 * 60);
+    const h24 = Math.floor(cur / 60) % 24;
+    S.tp = { id, ampm: h24 < 12 ? 'am' : 'pm', h: h24 % 12 === 0 ? 12 : h24 % 12, m: Math.round((cur % 60) / 5) * 5 % 60 };
+  } else if (name === 'tpClear') {
+    setTime(el.dataset.id, null); S.tp = null;
+  } else if (name === 'tpDone') {
+    S.tp = null;
+  } else {
+    if (name === 'tpAmpm') S.tp.ampm = el.dataset.v;
+    if (name === 'tpH') S.tp.h = +el.dataset.v;
+    if (name === 'tpM') S.tp.m = +el.dataset.v;
+  }
+  if (S.tp) { // 고를 때마다 바로 결과에 반영
+    const { ampm, h, m } = S.tp;
+    setTime(S.tp.id, ((h % 12) + (ampm === 'pm' ? 12 : 0)) * 60 + m);
+  }
+  renderSheet();
 }
 
 // 실제로 쓸 출발지: 고른 곳이 없으면 현재 위치
@@ -1202,13 +1270,14 @@ function editHtml(sh) {
       </div>
       ${sh.timeMode === 'now'
         ? `<span class="muted small">지금 바로(${fmtClock(nowMin())}) 출발해요. 도착 시간은 자동 계산돼요.</span>`
-        : `<input id="trTime" type="time" value="${toHHMM(sh.tval)}">
+        : `${timeField('trTime', sh.tval)}
       <span class="muted small">${sh.timeMode === 'dep' ? '이 시간에 출발지에서 떠나요. 도착 시간은 자동 계산돼요.' : '이 시간까지 도착하도록 출발 시간을 거꾸로 계산해요 (예약 등).'}</span>`}
     </div>
     <div class="field">이동 방법<div class="chips">${modes}</div></div>`;
   } else {
-    html += legInfo + `<label class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}<input id="edTime" type="time" value="${toHHMM(dr.time)}"></label>
-    <div class="field">${isStart ? '출발 전 머무는 시간' : '도착해서 머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>
+    html += legInfo + `<div class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}
+      ${timeField('edTime', dr.time, { placeholder: isStart ? '출발 시간 고르기' : '정해진 시간 없음 (자동)', clearable: !isStart })}</div>
+    ${sh.id ? `<div class="field">${isStart ? '출발 전 머무는 시간' : '머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>` : ''}
     ${isStart ? '' : `<div class="field">이동 방법<div class="chips">${modes}</div></div>`}`;
   }
 
@@ -1615,6 +1684,7 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'tpOpen': case 'tpAmpm': case 'tpH': case 'tpM': case 'tpDone': case 'tpClear': tpAct(name, el); break;
     case 'files': openViewer(i, 0); break;
     case 'viewFile': openViewer(i, +el.dataset.k); break;
     case 'closeViewer': closeViewer(); break;
@@ -1748,6 +1818,7 @@ function openWake(date) {
   const firstDep = schedOf(d)[0].depart;
   const w = d.wake || {};
   S.sheet = { type: 'wake', date, firstDep, time: w.time ?? Math.max(0, firstDep - 90), snooze: w.snooze ?? true, on: !!w.on };
+  S.tp = null;
   renderSheet();
 }
 
@@ -1764,7 +1835,7 @@ function wakeHtml(sh) {
   const quick = [60, 90, 120].map(m => `<button class="chip-btn ${sh.firstDep - sh.time === m ? 'on' : ''}" data-act="wkQuick" data-m="${m}">출발 ${fmtDur(m)} 전</button>`).join('');
   return `<div class="sheet-head"><div><div class="st-label">${dayLabel(sh.date)} 모닝콜</div><b>몇 시에 깨워 드릴까요?</b></div><button class="x" data-act="closeSheet">✕</button></div>
     <div class="picked">첫 출발 <b>${fmtClock(sh.firstDep)}</b> · ${esc(first.place)}</div>
-    <input id="wkTime" class="wake-time" type="time" value="${toHHMM(sh.time)}">
+    <div class="field">깨울 시간${timeField('wkTime', sh.time)}</div>
     <div class="chips">${quick}</div>
     <label class="check"><input id="wkSnooze" type="checkbox" ${sh.snooze ? 'checked' : ''}> 일어날 때까지 5분 간격으로 2번 더 울리기 <span class="muted small">(앱을 열면 멈춰요)</span></label>
     <div class="st-actions"><button class="primary" data-act="wkSave">⏰ 모닝콜 켜기</button>${sh.on ? '<button data-act="wkOff" class="danger">모닝콜 끄기</button>' : ''}<button data-act="closeSheet">취소</button></div>`;
@@ -1824,14 +1895,18 @@ const EASE = 'cubic-bezier(.32,.72,0,1)'; // 아이폰 화면 전환과 비슷�
 let swipedAt = 0;
 
 // 드래그 공통: 가로/세로 방향을 먼저 정하고, 정해진 방향일 때만 처리
-function dragTracker(el, { onMove, onEnd, axis: want }) {
+function dragTracker(el, { onMove, onEnd, axis: want, holdY }) {
   let st = null;
   const begin = (x, y) => { st = { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
   const move = (x, y, e) => {
     if (!st) return;
     st.dx = x - st.x; st.dy = y - st.y;
     if (!st.axis && Math.hypot(st.dx, st.dy) > 10) st.axis = Math.abs(st.dx) > Math.abs(st.dy) * 1.2 ? 'x' : 'y';
-    if (st.axis === want) { if (e?.cancelable && want === 'x') e.preventDefault(); onMove?.(st); }
+    if (st.axis === want) {
+      // 가로 끌기, 또는 holdY가 허락한 세로 끌기(예: 창 맨 위에서 아래로)는 화면 스크롤 대신 끌기로
+      if (e?.cancelable && (want === 'x' || holdY?.(st))) e.preventDefault();
+      onMove?.(st);
+    }
   };
   const finish = () => {
     if (!st) return;
@@ -1888,6 +1963,30 @@ function swipeDay(dir) {
     page.style.opacity = '';
   }, 230);
 }
+
+// 아래에서 올라온 창: 맨 위에서 아래로 쓸어내리면 닫힘 (손가락을 따라 내려감)
+dragTracker($('#sheet'), {
+  axis: 'y',
+  holdY: s => s.dy > 0 && $('#sheet').scrollTop <= 0,
+  onMove(s) {
+    const el = $('#sheet');
+    if (S.pick || el.scrollTop > 0 || s.dy <= 0) return;
+    el.style.transition = 'none';
+    el.style.transform = `translateY(${s.dy}px)`;
+  },
+  onEnd(s, ms) {
+    const el = $('#sheet');
+    if (S.pick || el.scrollTop > 0) { el.style.transform = ''; return; }
+    if (s.dy > 110 || (s.dy > 40 && s.dy / ms > 0.6)) {
+      el.style.transition = `transform .28s ${EASE}`;
+      el.style.transform = 'translateY(110%)';
+      setTimeout(() => { closeSheet(); el.style.transition = ''; el.style.transform = ''; }, 260);
+    } else {
+      el.style.transition = `transform .35s ${EASE}`;
+      el.style.transform = '';
+    }
+  },
+});
 
 // 상세 페이지: 맨 아래에서 위로 쓸어올리면 그 일정의 지도
 dragTracker($('#detailView'), {

@@ -259,6 +259,23 @@ button.chip.poi:active { background: var(--accent-soft); }
 
 .empty { background: var(--card); border-radius: 22px; padding: 22px 20px; box-shadow: var(--shadow); }
 .empty-icon { font-size: 40px; margin-bottom: 4px; }
+/* 시간 고르기 */
+.tp-row { display: flex; align-items: center; gap: 8px; }
+.time-pick { flex: 1; display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--line); background: var(--bg); border-radius: 16px; padding: 10px 14px; text-align: left; color: var(--text); }
+.time-pick.open { border-color: var(--accent); background: var(--accent-soft); }
+.tp-ico { font-size: 30px; line-height: 1; }
+.tp-val { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.tp-val.empty { font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.tp-clear { border: 0; background: var(--card-2); border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.tp-panel { margin-top: 10px; background: var(--bg); border-radius: 18px; padding: 12px; animation: pop .25s cubic-bezier(.32,.72,0,1); }
+@keyframes pop { from { opacity: 0; transform: translateY(-6px); } }
+.tp-ampm button { font-size: 15px; padding: 10px; }
+.tp-label { font-size: 12px; font-weight: 800; color: var(--muted); margin: 12px 2px 6px; }
+.tp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.tp-grid button { border: 0; background: var(--card); border-radius: 12px; padding: 11px 0; font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.tp-grid button.on { background: var(--accent); color: #fff; }
+.tp-done { width: 100%; margin-top: 12px; border: 0; background: var(--accent); color: #fff; border-radius: 14px; padding: 12px; font-size: 15px; font-weight: 800; }
+.sheet { touch-action: pan-y; }
 .q-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .q-head b { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
 .q-head .chip-btn { flex: none; }
