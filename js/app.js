@@ -570,7 +570,7 @@ function drawLines() {
   });
   const sh = S.sheet;
   if (sh?.type === 'edit' && hasPos(sh.draft)) {
-    const prev = sh.trip ? sh.origin : d?.items[sh.index - 1];
+    const prev = sh.trip ? originOf(sh) : d?.items[sh.index - 1];
     if (hasPos(prev) && !sh.id) lines.push({ path: [prev, sh.draft], color: '#fdd835', dashed: true, width: 3 });
   }
   if (S.routeView) lines.push({ path: S.routeView.path, color: S.routeView.color, width: 7, opacity: 0.95, z: 7 });
@@ -1118,9 +1118,7 @@ function openEditor(index, id) {
     draft: it ? { ...it, files: [...(it.files || [])] } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
   };
   if (trip) {
-    const h = prevHotel(date);
-    sh.origin = h ? { place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }
-      : S.pos ? { place: '현재 위치', address: '', lat: S.pos.lat, lng: S.pos.lng, from: 'here' } : blankPlace();
+    sh.origin = null; // 비워 두면 현재 위치에서 출발
     sh.oQuery = ''; sh.oResults = null;
     sh.timeMode = date === todayStr() ? 'now' : 'dep'; // 오늘이면 기본은 "즉시 떠나기"
     sh.tval = date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 50) : 9 * 60;
@@ -1156,13 +1154,16 @@ function placeBox(p, empty) {
   return `<div>📍 <b>${esc(p.place || '선택한 위치')}</b></div>${p.address ? `<div class="muted small">${esc(p.address)}</div>` : ''}${me}`;
 }
 
+// 실제로 쓸 출발지: 고른 곳이 없으면 현재 위치
+const originOf = sh => sh.origin || (S.pos ? { place: '현재 위치', address: '', lat: S.pos.lat, lng: S.pos.lng, from: 'here' } : null);
+
 // 제목 옆에 "지도로 보기" 버튼 (누르면 지도가 열리고, 지도를 눌러 위치를 고름)
 const headWithMap = (text, target) =>
   `<div class="q-head"><b>${text}</b><button class="chip-btn" data-act="edPick" data-target="${target}">🗺️ 지도로 보기</button></div>`;
 
 function editHtml(sh) {
   const dr = sh.draft, d = curDay(), isStart = !sh.trip && sh.index === 0;
-  const from = sh.trip ? sh.origin : d?.items[sh.index - 1];
+  const from = sh.trip ? originOf(sh) : d?.items[sh.index - 1];
   const stayChips = [0, 30, 60, 90, 120, 180].map(m => `<button class="chip-btn ${dr.stay === m ? 'on' : ''}" data-act="edStayQuick" data-m="${m}">${m ? fmtDur(m) : '없음'}</button>`).join('');
   const modes = Object.entries(MODES).map(([k, m]) => `<button class="chip-btn ${dr.mode === k ? 'on' : ''}" data-act="edMode" data-mode="${k}">${m.icon} ${m.label}</button>`).join('');
   const legInfo = hasPos(from) && hasPos(dr)
@@ -1171,7 +1172,7 @@ function editHtml(sh) {
 
   // 1) 도착지 (출발지 수정일 때는 출발지)
   let html = `<div class="sheet-head"><div class="st-label">${dayLabel(sh.date)} · ${title}</div><button class="x" data-act="closeSheet">✕</button></div>
-    ${headWithMap(isStart ? '어디서 출발하나요?' : '어디로 가나요?', 'dest')}
+    ${headWithMap(isStart ? '출발지' : '도착지', 'dest')}
     ${!sh.trip && !isStart && from ? `<div class="from-line">출발: <b>${esc(from.place)}</b>에서 <span class="muted small">(바로 앞 장소)</span></div>` : ''}
     <div class="search-row"><input id="edQuery" placeholder="${isStart ? '출발지 검색 (예: 숙소 이름)' : '도착지 이름이나 주소 (예: 시드니 오페라하우스)'}" value="${esc(sh.query)}" enterkeyhint="search"><button class="primary" data-act="edSearch">검색</button></div>
     ${resultsHtml(sh.results, 'edChoose')}
@@ -1181,15 +1182,16 @@ function editHtml(sh) {
   if (sh.trip) {
     // 2) 출발지 (빈 날 첫 일정: 같은 화면에서)
     const h = prevHotel(sh.date), today = sh.date === todayStr();
+    // 출발지: 도착지와 같은 순서(제목 → 검색 → 고른 위치). 비워 두면 현재 위치
+    const auto = S.pos
+      ? '<div>📍 <b>현재 위치</b></div><div class="muted small">검색하지 않으면 지금 있는 곳에서 출발해요</div>'
+      : '<div>📍 <b>현재 위치</b></div><div class="muted small">내 위치를 찾는 중이에요. 못 찾으면 출발지를 검색해 주세요</div>';
     html += `<div class="section">
-      ${headWithMap('어디서 출발하나요?', 'origin')}
-      <div class="picked origin">${placeBox(sh.origin, '아직 출발지를 고르지 않았어요')}</div>
-      <div class="chips pick-row">
-        <button class="chip-btn" data-act="orHere">📍 현위치 출발</button>
-        ${h ? `<button class="chip-btn" data-act="orHotel">🏨 ${esc(h.place)}</button>` : ''}
-      </div>
-      <div class="search-row"><input id="orQuery" placeholder="출발지 검색 (숙소, 역 등)" value="${esc(sh.oQuery)}" enterkeyhint="search"><button data-act="orSearch">검색</button></div>
+      ${headWithMap('출발지', 'origin')}
+      <div class="search-row"><input id="orQuery" placeholder="비워 두면 현재 위치에서 출발 (숙소, 역 등 검색)" value="${esc(sh.oQuery)}" enterkeyhint="search"><button class="primary" data-act="orSearch">검색</button></div>
       ${resultsHtml(sh.oResults, 'orChoose')}
+      <div class="picked origin">${sh.origin ? `${placeBox(sh.origin, '')}<button class="link" data-act="orReset">✕ 현재 위치에서 출발로 되돌리기</button>` : auto}</div>
+      ${h && !sh.origin ? `<div class="chips pick-row"><button class="chip-btn" data-act="orHotel">🏨 ${esc(h.place)}에서 출발</button></div>` : ''}
     </div>
     ${legInfo}
     <div class="field">시간
@@ -1272,7 +1274,7 @@ function edSave() {
   syncDraft();
   const sh = S.sheet, dr = sh.draft;
   if (!dr.place) { toast(sh.trip ? '도착지를 골라 주세요' : '장소 이름을 적어 주세요'); return; }
-  if (sh.trip && !hasPos(sh.origin)) { toast('출발지를 골라 주세요 (현재 위치 버튼이나 검색)'); return; }
+  if (sh.trip && !originOf(sh)) { toast('내 위치를 아직 못 찾았어요. 출발지를 검색해서 골라 주세요', 4000); return; }
   if (!hasPos(dr) && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return;
   const d = ensureDay(sh.date);
   const item = {
@@ -1284,7 +1286,7 @@ function edSave() {
   (sh.removed || []).forEach(id => deleteFile(id).catch(() => {})); // 수정 창에서 뺀 첨부는 실제로 지움
   if (sh.trip) {
     // 출발지 + 도착지를 한 번에 만듦
-    const o = sh.origin;
+    const o = originOf(sh);
     const start = { id: newId(), place: o.place, address: o.address || '', lat: o.lat, lng: o.lng, time: null, stay: 0, mode: 'TRANSIT', memo: '', notes: [] };
     if (sh.timeMode === 'now') { start.time = nowMin(); item.time = null; }        // 지금 바로 출발
     else if (sh.timeMode === 'dep') { start.time = sh.tval; item.time = null; }  // 정한 시간에 출발
@@ -1298,7 +1300,7 @@ function edSave() {
   renderAll(true);
   prefetchLegs();
   scheduleAlarms();
-  toast(sh.id ? '수정했어요' : sh.trip ? `${sh.origin.place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
+  toast(sh.id ? '수정했어요' : sh.trip ? `${originOf(sh).place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
 }
 
 function deletePlace(d, idx) {
@@ -1666,6 +1668,7 @@ async function act(name, el) {
     case 'orSearch': edSearch('origin'); break;
     case 'orChoose': { const r = S.sheet.oResults[+el.dataset.k]; setOrigin({ place: r.name, address: r.address, lat: r.lat, lng: r.lng, from: 'search' }); break; }
     case 'orHere': { const p = hereOrToast(); if (p) setOrigin({ place: '현재 위치', address: '', ...p, from: 'here' }); break; }
+    case 'orReset': setOrigin(null); break;
     case 'orHotel': { const h = prevHotel(S.sheet.date); if (h) setOrigin({ place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }); break; }
     case 'edHere': {
       const p = hereOrToast();
