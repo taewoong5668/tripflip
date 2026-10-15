@@ -377,6 +377,31 @@ button.chip.poi:active { background: var(--accent-soft); }
 }
 .alarm-title { font-weight: 800; font-size: 19px; }
 .alarm button { margin-top: 10px; border: 0; background: #fff; color: #e11d48; font-weight: 800; border-radius: 12px; padding: 9px 20px; }
+/* 첨부 파일 */
+.clip { border: 0; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 1px 7px; margin-left: 7px; font-size: 13px; vertical-align: 2px; line-height: 1.5; }
+.clip small { font-size: 11px; font-weight: 800; margin-left: 1px; }
+.att-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.att-thumb { border: 0; padding: 0; background: transparent; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.att-thumb .ph, .att-thumb .pdf { display: block; aspect-ratio: 1 / 1; width: 100%; border-radius: 12px; background: var(--card-2) center / cover no-repeat; }
+.att-thumb .pdf { display: grid; place-items: center; font-weight: 800; color: #fff; background: #e5484d; }
+.att-thumb em { font-style: normal; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-edit { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+.att-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--card-2); border-radius: 999px; padding: 4px 6px 4px 10px; font-size: 12px; max-width: 100%; }
+.att-chip button { border: 0; background: var(--line); border-radius: 50%; width: 20px; height: 20px; font-size: 11px; color: var(--muted); }
+.viewer { position: fixed; inset: 0; z-index: 2500; background: #0b0c0f; color: #fff; display: flex; flex-direction: column; animation: fadein .25s ease; }
+@keyframes fadein { from { opacity: 0; } }
+.vw-top { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 10px 10px; }
+.vw-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vw-title b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vw-title span { font-size: 12px; opacity: .7; }
+.vw-btn { width: 40px; height: 40px; border: 0; border-radius: 12px; background: rgba(255,255,255,.12); color: #fff; font-size: 16px; }
+.vw-body { flex: 1; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 0 calc(20px + env(safe-area-inset-bottom)); }
+.vw-body img { max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; }
+.vw-body canvas { background: #fff; border-radius: 4px; max-width: 100%; }
+.vw-body .muted { color: rgba(255,255,255,.7); }
+.vw-nav { position: absolute; top: 50%; width: 44px; height: 60px; border: 0; border-radius: 14px; background: rgba(255,255,255,.14); color: #fff; font-size: 28px; }
+.vw-nav.prev { left: 8px; } .vw-nav.next { right: 8px; }
+.vw-nav:disabled { opacity: .25; }
 .toast {
   position: fixed; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 3000;
   background: rgba(18, 24, 38, .92); color: #fff; padding: 10px 16px; border-radius: 14px; font-size: 14px; font-weight: 600; max-width: 90vw; text-align: center;

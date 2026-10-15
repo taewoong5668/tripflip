@@ -5,6 +5,7 @@ import {
 import { createMap } from './map.js';
 import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl } from './google.js';
 import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -345,7 +346,7 @@ function renderTimeline() {
     return `${leg}<div class="row ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
       <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
       <div class="row-main">
-        <div class="row-name">${esc(it.place)}${tag}</div>
+        <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
         <div class="row-sub">${sub}${hasPos(it) ? '' : ' · <span class="bad">위치 없음</span>'}</div>
       </div>
       <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
@@ -393,6 +394,11 @@ function renderDetail() {
       <div class="st-actions"><button data-act="route" data-i="${i}">경로 보기</button><button class="primary" data-act="nav" data-i="${i}">길안내 시작</button></div>
     </div>` : ''}
     ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
+    <div class="dt-card">
+      <div class="note-label">📎 첨부 파일 <span class="muted small">· 바우처, 예약 티켓 사진이나 PDF</span></div>
+      <div class="att-grid" data-att="${i}"></div>
+      <button class="chip-btn" data-act="attach" data-i="${i}">＋ 사진·파일 첨부</button>
+    </div>
     <div class="dt-card dt-acts">
       <button data-act="editPlace" data-i="${i}">✏️ 수정</button>
       <button data-act="addPlace" data-i="${i + 1}">＋ 이 장소 뒤에 일정 넣기</button>
@@ -411,6 +417,99 @@ function renderDetail() {
     <button class="dt-pull" data-act="detailMap"><span class="grab"></span>위로 밀거나 눌러서 지도 보기</button>
   </div>`;
   updateDistances();
+  fillAttachments(i);
+}
+
+// ---------- 첨부 파일 (바우처·예약 티켓) ----------
+const urls = new Set(); // 화면에 쓴 사진 주소 (다 쓰면 메모리 정리)
+const blobUrl = b => { const u = URL.createObjectURL(b); urls.add(u); return u; };
+const freeUrls = () => { urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); };
+
+// 상세 페이지 첨부 칸에 작은 미리보기
+async function fillAttachments(i) {
+  const box = document.querySelector(`[data-att="${i}"]`), it = curDay()?.items[i];
+  if (!box || !it) return;
+  const files = it.files || [];
+  if (!files.length) { box.innerHTML = '<div class="muted small pad">아직 첨부한 파일이 없어요</div>'; return; }
+  box.innerHTML = files.map((f, k) => `<button class="att-thumb" data-act="viewFile" data-i="${i}" data-k="${k}">${isPdf(f) ? '<span class="pdf">PDF</span>' : '<span class="ph"></span>'}<em>${esc(f.name)}</em></button>`).join('');
+  for (const [k, f] of files.entries()) {
+    if (isPdf(f)) continue;
+    const rec = await getFile(f.id).catch(() => null);
+    const el = box.querySelector(`[data-k="${k}"] .ph`);
+    if (rec && el) el.style.backgroundImage = `url(${blobUrl(rec.blob)})`;
+  }
+}
+
+// 첨부 고르기: target이 'draft'면 수정 창, 아니면 그 일정에 바로 붙임
+async function attachFiles(fileList) {
+  const to = S.attachTo;
+  S.attachTo = null;
+  if (!to || !fileList.length) return;
+  const metas = [];
+  for (const f of fileList) {
+    try { metas.push(await saveFile(f)); } catch (e) { toast(`첨부 실패: ${e.message}`, 5000); }
+  }
+  if (!metas.length) return;
+  if (to.draft && S.sheet?.type === 'edit') {
+    const sh = S.sheet;
+    sh.draft.files = [...(sh.draft.files || []), ...metas];
+    (sh.added ||= []).push(...metas.map(m => m.id));
+    renderSheet();
+  } else {
+    const it = curDay()?.items[to.i];
+    if (!it) return;
+    it.files = [...(it.files || []), ...metas];
+    savePlan();
+    renderTimeline();
+    if (topLayer() === 'detail') renderDetail();
+  }
+  toast(`📎 ${metas.length}개 첨부했어요`);
+}
+
+// 크게 보기: 사진은 화면에 맞춰, PDF는 페이지별로. 여러 개면 좌우로 넘기기
+async function openViewer(i, k) {
+  const it = curDay()?.items[i], f = it?.files?.[k];
+  if (!f) return;
+  S.viewer = { i, k };
+  const el = $('#viewer'), n = it.files.length;
+  el.hidden = false;
+  el.innerHTML = `<div class="vw-top">
+      <button class="vw-btn" data-act="closeViewer" aria-label="닫기">✕</button>
+      <div class="vw-title"><b>${esc(f.name)}</b><span>${esc(it.place)}${n > 1 ? ` · ${k + 1}/${n}` : ''}</span></div>
+      <button class="vw-btn" data-act="delFile" aria-label="첨부 삭제">🗑</button>
+    </div>
+    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>
+    ${n > 1 ? `<button class="vw-nav prev" data-act="vwPrev" ${k === 0 ? 'disabled' : ''}>‹</button><button class="vw-nav next" data-act="vwNext" ${k === n - 1 ? 'disabled' : ''}>›</button>` : ''}`;
+  const body = el.querySelector('.vw-body');
+  const rec = await getFile(f.id).catch(() => null);
+  if (S.viewer?.k !== k || S.viewer?.i !== i) return;
+  if (!rec) { body.innerHTML = '<div class="muted pad">파일을 찾을 수 없어요 (다른 휴대폰에서 첨부했거나 지워졌어요)</div>'; return; }
+  body.innerHTML = '';
+  if (isPdf(f)) {
+    try { await renderPdf(rec.blob, body); } catch { body.innerHTML = '<div class="muted pad">PDF를 열지 못했어요</div>'; }
+  } else {
+    body.innerHTML = `<img src="${blobUrl(rec.blob)}" alt="${esc(f.name)}">`;
+  }
+}
+
+function closeViewer() {
+  S.viewer = null;
+  $('#viewer').hidden = true;
+  $('#viewer').innerHTML = '';
+  freeUrls();
+  if (topLayer() === 'detail') fillAttachments(S.detail);
+}
+
+async function deleteAttachment() {
+  const { i, k } = S.viewer, it = curDay().items[i], f = it.files[k];
+  if (!confirm(`"${f.name}" 첨부를 지울까요?`)) return;
+  it.files.splice(k, 1);
+  await deleteFile(f.id).catch(() => {});
+  savePlan();
+  renderTimeline();
+  if (topLayer() === 'detail') renderDetail();
+  if (it.files.length) openViewer(i, Math.min(k, it.files.length - 1)); else closeViewer();
+  toast('첨부를 지웠어요');
 }
 
 // 장소마다 "내 위치에서 얼마나 먼지" (GPS가 바뀔 때마다 갱신)
@@ -615,11 +714,12 @@ function backToList(i) {
 }
 
 // 앱 안에서 돌아갈 화면이 남아 있는지
-const canGoBack = () => !$('#alarm').hidden || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0;
+const canGoBack = () => !$('#alarm').hidden || !!S.viewer || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0;
 
 // 휴대폰 뒤로 가기: 바로 전 화면으로. 첫 화면이면 종료할지 물어봄 (앱에서만)
 function goBack() {
   if (!$('#alarm').hidden) { dismissAlarm(); return; }
+  if (S.viewer) { closeViewer(); return; }
   if (S.pick) { finishPick(); return; }
   if (S.sheet) { closeSheet(); return; }
   if (S.stack.length > 1) { popLayer(); return; }
@@ -960,6 +1060,8 @@ function poiAdd(r, i) {
 }
 
 function closeSheet() {
+  // 저장하지 않고 닫은 수정 창에서 새로 첨부한 파일은 지움
+  if (S.sheet?.type === 'edit' && !S.sheet.saved) (S.sheet.added || []).forEach(id => deleteFile(id).catch(() => {}));
   S.sheet = null; S.routeView = null; S.pick = false;
   renderSheet(); renderMap(false);
 }
@@ -1013,7 +1115,7 @@ function openEditor(index, id) {
   const trip = !it && !(d?.items.length);
   const sh = {
     type: 'edit', date, index, id: it?.id || null, results: null, query: '', trip,
-    draft: it ? { ...it } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
+    draft: it ? { ...it, files: [...(it.files || [])] } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
   };
   if (trip) {
     const h = prevHotel(date);
@@ -1111,6 +1213,10 @@ function editHtml(sh) {
   // 3) 장소 이름 · 메모
   html += `<label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>
     <label class="field">메모<textarea id="edMemo" rows="2" placeholder="예약 번호, 할 일 등">${esc(dr.memo)}</textarea></label>
+    <div class="att-edit">
+      ${(dr.files || []).map((f, k) => `<span class="att-chip">${isPdf(f) ? '📄' : '🖼️'} ${esc(f.name)}<button data-act="edFileDel" data-k="${k}" aria-label="첨부 빼기">✕</button></span>`).join('')}
+      <button class="chip-btn" data-act="attach" data-target="draft">📎 사진·파일 첨부</button>
+    </div>
     <div class="st-actions"><button class="primary" data-act="edSave">저장</button>${sh.id ? '<button data-act="delPlace" data-id="' + sh.id + '" class="danger">삭제</button>' : ''}<button data-act="closeSheet">취소</button></div>`;
   return html;
 }
@@ -1171,9 +1277,11 @@ function edSave() {
   const d = ensureDay(sh.date);
   const item = {
     id: sh.id || newId(), place: dr.place, address: dr.address || '', lat: dr.lat ?? null, lng: dr.lng ?? null,
-    time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [],
+    time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [], files: dr.files || [],
   };
   if (dr.auto) item.auto = true;
+  sh.saved = true;
+  (sh.removed || []).forEach(id => deleteFile(id).catch(() => {})); // 수정 창에서 뺀 첨부는 실제로 지움
   if (sh.trip) {
     // 출발지 + 도착지를 한 번에 만듦
     const o = sh.origin;
@@ -1198,6 +1306,7 @@ function deletePlace(d, idx) {
   if (!confirm(`"${it.place}"을(를) 시간표에서 지울까요?`)) return;
   d.items.splice(idx, 1);
   delete progOf(d.date)[it.id];
+  (it.files || []).forEach(f => deleteFile(f.id).catch(() => {}));
   if (!d.items.length) S.plan.days = S.plan.days.filter(x => x !== d);
   savePlan(); saveProgress();
   recompute();
@@ -1316,7 +1425,29 @@ function scrollToNow() {
   if (row) row.scrollIntoView({ block: 'center' });
 }
 
+// 엑셀을 다시 불러와도, 같은 날 같은 장소의 첨부 파일과 그날 모닝콜은 이어받음
+function carryOver(oldPlan, plan) {
+  const files = new Map(), wakes = new Map();
+  for (const d of oldPlan?.days || []) {
+    if (d.wake?.on) wakes.set(d.date, d.wake);
+    for (const it of d.items) if (it.files?.length) files.set(`${d.date}|${it.place}`, (files.get(`${d.date}|${it.place}`) || []).concat(it.files));
+  }
+  let kept = 0, wk = 0;
+  for (const d of plan.days) {
+    if (wakes.has(d.date)) { d.wake = { ...wakes.get(d.date), ack: null }; wk++; }
+    for (const it of d.items) {
+      const key = `${d.date}|${it.place}`;
+      if (files.has(key)) { it.files = files.get(key); files.delete(key); kept += it.files.length; }
+    }
+  }
+  // 새 일정에 없는 장소의 첨부는 정리
+  for (const list of files.values()) list.forEach(f => deleteFile(f.id).catch(() => {}));
+  return [kept && `첨부 파일 ${kept}개`, wk && `모닝콜 ${wk}개`].filter(Boolean).join('와 ');
+}
+
 function loadPlan(plan) {
+  const kept = carryOver(S.plan, plan);
+  if (kept) setTimeout(() => toast(`${kept}는 그대로 이어졌어요`, 4000), 3200);
   S.plan = plan; savePlan();
   S.progress = {}; saveProgress();
   const places = plan.days.reduce((n, d) => n + d.items.length, 0);
@@ -1482,6 +1613,23 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'files': openViewer(i, 0); break;
+    case 'viewFile': openViewer(i, +el.dataset.k); break;
+    case 'closeViewer': closeViewer(); break;
+    case 'vwPrev': openViewer(S.viewer.i, S.viewer.k - 1); break;
+    case 'vwNext': openViewer(S.viewer.i, S.viewer.k + 1); break;
+    case 'delFile': deleteAttachment(); break;
+    case 'attach':
+      if (el.dataset.target === 'draft') { syncDraft(); S.attachTo = { draft: true }; } else S.attachTo = { i };
+      $('#attachInput').click();
+      break;
+    case 'edFileDel': {
+      syncDraft();
+      const sh = S.sheet, [f] = sh.draft.files.splice(+el.dataset.k, 1);
+      (sh.removed ||= []).push(f.id);
+      renderSheet();
+      break;
+    }
     case 'poi': openPoi(i, el.dataset.name); break;
     case 'poiMap': {
       const sh = S.sheet, r = sh.results[+el.dataset.k];
@@ -1749,6 +1897,22 @@ dragTracker($('#detailView'), {
   },
 });
 
+
+$('#attachInput').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  await attachFiles(files);
+});
+
+// 첨부 크게 보기에서 좌우로 밀어 다음/이전 파일
+dragTracker($('#viewer'), {
+  axis: 'x',
+  onEnd(s) {
+    if (!S.viewer || Math.abs(s.dx) < 60) return;
+    const n = curDay()?.items[S.viewer.i]?.files?.length || 0, k = S.viewer.k + (s.dx < 0 ? 1 : -1);
+    if (k >= 0 && k < n) openViewer(S.viewer.i, k);
+  },
+});
 
 $('#fileInput').addEventListener('change', async e => {
   const f = e.target.files[0];
