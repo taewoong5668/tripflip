@@ -1015,7 +1015,7 @@ function openEditor(index, id) {
     sh.origin = h ? { place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }
       : S.pos ? { place: '현재 위치', address: '', lat: S.pos.lat, lng: S.pos.lng, from: 'here' } : blankPlace();
     sh.oQuery = ''; sh.oResults = null;
-    sh.timeMode = 'dep';
+    sh.timeMode = date === todayStr() ? 'now' : 'dep'; // 오늘이면 기본은 "즉시 떠나기"
     sh.tval = date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 50) : 9 * 60;
   }
   S.sheet = sh;
@@ -1049,6 +1049,10 @@ function placeBox(p, empty) {
   return `<div>📍 <b>${esc(p.place || '선택한 위치')}</b></div>${p.address ? `<div class="muted small">${esc(p.address)}</div>` : ''}${me}`;
 }
 
+// 제목 옆에 "지도로 보기" 버튼 (누르면 지도가 열리고, 지도를 눌러 위치를 고름)
+const headWithMap = (text, target) =>
+  `<div class="q-head"><b>${text}</b><button class="chip-btn" data-act="edPick" data-target="${target}">🗺️ 지도로 보기</button></div>`;
+
 function editHtml(sh) {
   const dr = sh.draft, d = curDay(), isStart = !sh.trip && sh.index === 0;
   const from = sh.trip ? sh.origin : d?.items[sh.index - 1];
@@ -1059,23 +1063,21 @@ function editHtml(sh) {
   const title = sh.id ? (isStart ? '출발지 수정' : '장소 수정') : sh.trip ? '새 일정' : `${sh.index + 1}번째 장소 추가`;
 
   // 1) 도착지 (출발지 수정일 때는 출발지)
-  let html = `<div class="sheet-head"><div><div class="st-label">${dayLabel(sh.date)} · ${title}</div>
-      <b>${isStart ? '어디서 출발하나요?' : '어디로 가나요?'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+  let html = `<div class="sheet-head"><div class="st-label">${dayLabel(sh.date)} · ${title}</div><button class="x" data-act="closeSheet">✕</button></div>
+    ${headWithMap(isStart ? '어디서 출발하나요?' : '어디로 가나요?', 'dest')}
     ${!sh.trip && !isStart && from ? `<div class="from-line">출발: <b>${esc(from.place)}</b>에서 <span class="muted small">(바로 앞 장소)</span></div>` : ''}
     <div class="search-row"><input id="edQuery" placeholder="${isStart ? '출발지 검색 (예: 숙소 이름)' : '도착지 이름이나 주소 (예: 시드니 오페라하우스)'}" value="${esc(sh.query)}" enterkeyhint="search"><button class="primary" data-act="edSearch">검색</button></div>
     ${resultsHtml(sh.results, 'edChoose')}
-    <div class="chips pick-row"><button class="chip-btn" data-act="edPick">🗺️ 지도에서 고르기</button>${isStart ? '<button class="chip-btn" data-act="edHere">📍 현위치 출발</button>' : ''}</div>
-    <div class="picked">${placeBox(dr, isStart ? '아직 출발지를 고르지 않았어요' : '아직 도착지를 고르지 않았어요')}</div>
-    <label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>`;
+    ${isStart ? '<div class="chips pick-row"><button class="chip-btn" data-act="edHere">📍 현위치 출발</button></div>' : ''}
+    <div class="picked">${placeBox(dr, isStart ? '아직 출발지를 고르지 않았어요' : '아직 도착지를 고르지 않았어요')}</div>`;
 
-  // 2) 출발지 (빈 날 첫 일정일 때만, 같은 화면에서)
   if (sh.trip) {
-    const h = prevHotel(sh.date);
+    // 2) 출발지 (빈 날 첫 일정: 같은 화면에서)
+    const h = prevHotel(sh.date), today = sh.date === todayStr();
     html += `<div class="section">
-      <div class="section-title">어디서 출발하나요?</div>
+      ${headWithMap('어디서 출발하나요?', 'origin')}
       <div class="picked origin">${placeBox(sh.origin, '아직 출발지를 고르지 않았어요')}</div>
       <div class="chips pick-row">
-        <button class="chip-btn" data-act="edPick" data-target="origin">🗺️ 지도에서 고르기</button>
         <button class="chip-btn" data-act="orHere">📍 현위치 출발</button>
         ${h ? `<button class="chip-btn" data-act="orHotel">🏨 ${esc(h.place)}</button>` : ''}
       </div>
@@ -1083,17 +1085,26 @@ function editHtml(sh) {
       ${resultsHtml(sh.oResults, 'orChoose')}
     </div>
     ${legInfo}
-    <div class="field">시간 기준
-      <div class="seg"><button class="${sh.timeMode === 'dep' ? 'on' : ''}" data-act="trMode" data-m="dep">출발 시각 정하기</button><button class="${sh.timeMode === 'arr' ? 'on' : ''}" data-act="trMode" data-m="arr">도착 시각 정하기 (예약 등)</button></div>
-      <input id="trTime" type="time" value="${toHHMM(sh.tval)}">
-      <span class="muted small">${sh.timeMode === 'dep' ? '이 시각에 출발지에서 떠나요. 도착 시각은 자동 계산돼요.' : '이 시각까지 도착하도록 출발 시각을 거꾸로 계산해요.'}</span>
-    </div>`;
+    <div class="field">시간
+      <div class="seg">
+        ${today ? `<button class="${sh.timeMode === 'now' ? 'on' : ''}" data-act="trMode" data-m="now">즉시 떠나기</button>` : ''}
+        <button class="${sh.timeMode === 'dep' ? 'on' : ''}" data-act="trMode" data-m="dep">출발 시간 정하기</button>
+        <button class="${sh.timeMode === 'arr' ? 'on' : ''}" data-act="trMode" data-m="arr">도착 시간 정하기</button>
+      </div>
+      ${sh.timeMode === 'now'
+        ? `<span class="muted small">지금 바로(${fmtClock(nowMin())}) 출발해요. 도착 시간은 자동 계산돼요.</span>`
+        : `<input id="trTime" type="time" value="${toHHMM(sh.tval)}">
+      <span class="muted small">${sh.timeMode === 'dep' ? '이 시간에 출발지에서 떠나요. 도착 시간은 자동 계산돼요.' : '이 시간까지 도착하도록 출발 시간을 거꾸로 계산해요 (예약 등).'}</span>`}
+    </div>
+    <div class="field">이동 방법<div class="chips">${modes}</div></div>`;
   } else {
-    html += legInfo + `<label class="field">${isStart ? '출발 시각' : '도착 시각 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}<input id="edTime" type="time" value="${toHHMM(dr.time)}"></label>`;
+    html += legInfo + `<label class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}<input id="edTime" type="time" value="${toHHMM(dr.time)}"></label>
+    <div class="field">${isStart ? '출발 전 머무는 시간' : '도착해서 머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>
+    ${isStart ? '' : `<div class="field">이동 방법<div class="chips">${modes}</div></div>`}`;
   }
 
-  html += `<div class="field">${isStart ? '출발 전 머무는 시간' : '도착해서 머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>
-    ${isStart ? '' : `<div class="field">이동 방법<div class="chips">${modes}</div></div>`}
+  // 3) 장소 이름 · 메모
+  html += `<label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>
     <label class="field">메모<textarea id="edMemo" rows="2" placeholder="예약 번호, 할 일 등">${esc(dr.memo)}</textarea></label>
     <div class="st-actions"><button class="primary" data-act="edSave">저장</button>${sh.id ? '<button data-act="delPlace" data-id="' + sh.id + '" class="danger">삭제</button>' : ''}<button data-act="closeSheet">취소</button></div>`;
   return html;
@@ -1162,7 +1173,9 @@ function edSave() {
     // 출발지 + 도착지를 한 번에 만듦
     const o = sh.origin;
     const start = { id: newId(), place: o.place, address: o.address || '', lat: o.lat, lng: o.lng, time: null, stay: 0, mode: 'TRANSIT', memo: '', notes: [] };
-    if (sh.timeMode === 'dep') { start.time = sh.tval; item.time = null; } else { item.time = sh.tval; }
+    if (sh.timeMode === 'now') { start.time = nowMin(); item.time = null; }        // 지금 바로 출발
+    else if (sh.timeMode === 'dep') { start.time = sh.tval; item.time = null; }  // 정한 시간에 출발
+    else { item.time = sh.tval; }                                                // 정한 시간까지 도착
     d.items.splice(0, 0, start, item);
   } else if (sh.id) d.items[d.items.findIndex(x => x.id === sh.id)] = item;
   else d.items.splice(sh.index, 0, item);

@@ -258,6 +258,10 @@ button.chip.poi:active { background: var(--accent-soft); }
 
 .empty { background: var(--card); border-radius: 22px; padding: 22px 20px; box-shadow: var(--shadow); }
 .empty-icon { font-size: 40px; margin-bottom: 4px; }
+.q-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.q-head b { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+.q-head .chip-btn { flex: none; }
+.section .q-head b { font-size: 16px; }
 .from-line { background: var(--card-2); border-radius: 12px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
 .pick-row { margin-top: 8px; }
 .section { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
