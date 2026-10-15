@@ -104,8 +104,10 @@ export async function searchPlaces(key, query, near) {
 }
 
 /** API 키 없이 쓰는 무료 검색 (OpenStreetMap). 결과가 구글보다 부정확할 수 있음 */
-export async function searchPlacesFree(query) {
-  const u = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ko&q=${encodeURIComponent(query)}`;
+export async function searchPlacesFree(query, near) {
+  let u = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ko&q=${encodeURIComponent(query)}`;
+  // near가 있으면 그 주변(약 5km) 안에서만 찾기
+  if (near) u += `&viewbox=${near.lng - 0.05},${near.lat + 0.05},${near.lng + 0.05},${near.lat - 0.05}&bounded=1`;
   const res = await fetch(u);
   if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
   return (await res.json()).map(p => ({

@@ -226,6 +226,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pre { white-space: pre-line; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { font-size: 12px; background: var(--card-2); border-radius: 999px; padding: 3px 10px; }
+button.chip.poi { border: 1px solid var(--line); color: var(--text); font-size: 13px; padding: 5px 11px; background: var(--card-2); }
+button.chip.poi:active { background: var(--accent-soft); }
+.poi-card { background: var(--bg); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; }
+.poi-name { font-size: 16px; font-weight: 800; }
+.poi-dist { margin: 4px 0 8px; color: var(--accent); font-weight: 700; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .acts button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 11px; font-size: 13px; font-weight: 600; }
 .acts button.danger, button.danger { color: var(--danger); }

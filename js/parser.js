@@ -100,6 +100,16 @@ function sheetsToPlan(sheets) {
   if (!days.size) throw new Error('"장소" 열이 있는 표를 찾지 못했어요');
   const list = [...days.values()].filter(d => d.items.length).sort((a, b) => a.date.localeCompare(b.date));
 
+  // 하루가 식당 같은 곳에서 끝나면(마지막 날·비행기 제외) 식사 후 숙소로 돌아가는 줄을 끝에 추가
+  for (let k = 0; k < list.length - 1; k++) {
+    const items = list[k].items, last = items.at(-1);
+    if (isHotel(last.place) || isFlight(last.place)) continue;
+    const hotel = list.slice(0, k + 1).flatMap(d => d.items).filter(it => isHotel(it.place)).at(-1);
+    if (!hotel) continue;
+    if (!last.stay) last.stay = 75;
+    items.push({ ...hotel, time: null, stay: 0, mode: 'TRANSIT', memo: '식사 후 숙소로 복귀', notes: [] });
+  }
+
   // 아침 첫 장소가 숙소가 아니면, 전날 묵은 숙소에서 출발하는 줄을 맨 앞에 추가
   // (전날 마지막이 식당이어도 숙소 기준. 비행기 탄 다음 날은 추가 안 함)
   for (let k = 1; k < list.length; k++) {

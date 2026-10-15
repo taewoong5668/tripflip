@@ -272,9 +272,9 @@ function stayMin(it, s, hasNext) {
 // "a. 커피  b. 페이스트리" → ['커피', '페이스트리']
 const splitChips = t => t.split(/\s+(?=[a-zA-Z]\.\s)/).map(x => x.replace(/^[a-zA-Z]\.\s*/, '').trim()).filter(Boolean);
 
-function notesHtml(it) {
+function notesHtml(it, i) {
   const parts = (it.notes || []).map(n => n.label === '주변 추천'
-    ? `<div class="note"><div class="note-label">주변 추천</div><div class="chips">${splitChips(n.text).map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div></div>`
+    ? `<div class="note"><div class="note-label">주변 추천 <span class="muted small">· 누르면 위치와 정보</span></div><div class="chips">${splitChips(n.text).map(c => `<button class="chip poi" data-act="poi" data-i="${i}" data-name="${esc(c)}">📍 ${esc(c)}</button>`).join('')}</div></div>`
     : `<div class="note"><div class="note-label">${esc(n.label)}</div><div>${esc(n.text)}</div></div>`);
   if (it.memo) parts.push(`<div class="note"><div class="note-label">메모</div><div class="pre">${esc(it.memo)}</div></div>`);
   return parts.join('');
@@ -387,7 +387,7 @@ function renderDetail() {
       <div class="dt-leg">${m.icon} <b>${m.label} ${fmtDur(l.dur)}</b>${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''}${l.est ? '<span class="est">추정</span>' : ''}</div>
       <div class="st-actions"><button data-act="route" data-i="${i}">경로 보기</button><button class="primary" data-act="nav" data-i="${i}">길안내 시작</button></div>
     </div>` : ''}
-    ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it)}</div>` : ''}
+    ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
     <div class="dt-card dt-acts">
       <button data-act="editPlace" data-i="${i}">✏️ 수정</button>
       <button data-act="addPlace" data-i="${i + 1}">＋ 이 장소 뒤에 일정 넣기</button>
@@ -444,6 +444,7 @@ function renderMap(fit) {
   const dr = S.sheet?.type === 'edit' ? S.sheet.draft : null;
   const og = S.sheet?.type === 'edit' && S.sheet.trip ? S.sheet.origin : null;
   if (hasPos(og)) places.push({ lat: og.lat, lng: og.lng, label: '출', color: '#43a047', shape: 'square', ring: true, z: 19, title: og.place });
+  if (S.poi) places.push({ lat: S.poi.lat, lng: S.poi.lng, label: '★', color: '#ff7043', ring: true, z: 18, title: S.poi.name });
   if (hasPos(dr)) places.push({ lat: dr.lat, lng: dr.lng, label: '＋', color: '#fdd835', textColor: '#000', ring: true, z: 20, title: dr.place });
   S.map.setPlaces(places);
   drawLines();
@@ -469,6 +470,8 @@ function drawLines() {
     if (hasPos(prev) && !sh.id) lines.push({ path: [prev, sh.draft], color: '#fdd835', dashed: true, width: 3 });
   }
   if (S.routeView) lines.push({ path: S.routeView.path, color: S.routeView.color, width: 7, opacity: 0.95, z: 7 });
+  const poiFrom = S.poi && d?.items[S.poi.from];
+  if (hasPos(poiFrom)) lines.push({ path: [poiFrom, S.poi], color: '#ff7043', dashed: true, width: 3, z: 7 });
   if (S.live && S.pos) {
     const path = S.live.path?.length ? [S.pos, ...S.live.path] : [S.pos, S.live.to];
     lines.push({ path, color: '#ffffff', width: 10, opacity: 0.9, z: 8 });
@@ -536,6 +539,7 @@ const topLayer = () => S.stack[S.stack.length - 1];
 
 function applyLayers() {
   const top = topLayer();
+  if (top !== 'map' && S.poi) { S.poi = null; renderMap(false); } // 지도를 닫으면 추천 장소 표시도 지움
   for (const name of LAYERS) {
     const el = $(`#${name}View`), inStack = S.stack.includes(name);
     el.classList.toggle('active', name === top);
@@ -647,7 +651,8 @@ function panToFocus(scrollCard) {
   const d = curDay(), i = S.focus, it = d?.items[i];
   if (!it) return;
   const prev = d.items[i - 1];
-  if (hasPos(prev) && hasPos(it)) S.map.fit([prev, it]);
+  if (S.poi && S.poi.from === i && hasPos(it)) S.map.fit([it, S.poi]); // 주변 추천 장소와 함께
+  else if (hasPos(prev) && hasPos(it)) S.map.fit([prev, it]);
   else if (hasPos(it)) S.map.panTo(it, 16);
   if (scrollCard) document.querySelector(`.c-card[data-i="${i}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
@@ -898,7 +903,55 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 위치를 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml }[sh.type](sh);
+}
+
+// ---------- 주변 추천 장소 ----------
+// 추천 이름(예: "world square")을 그 일정 장소 근처에서 찾아 위치·거리·바로가기를 보여줌
+async function openPoi(i, name) {
+  const d = curDay(), it = d.items[i];
+  S.sheet = { type: 'poi', i, name, results: 'loading' };
+  renderSheet();
+  const near = hasPos(it) ? it : null;
+  let list = [];
+  try {
+    if (S.settings.apiKey) list = await searchPlaces(S.settings.apiKey, `${name} ${it.address || it.place}`, near);
+    if (!list.length) list = await searchPlacesFree(name, near);
+  } catch { /* 아래에서 결과 없음으로 안내 */ }
+  if (S.sheet?.type !== 'poi' || S.sheet.name !== name) return;
+  // 그 장소에서 가까운 순, 5km 넘는 건 제외
+  if (near) list = list.map(r => ({ ...r, d: haversine(near, r) })).filter(r => r.d < 5000).sort((a, b) => a.d - b.d);
+  S.sheet.results = list.slice(0, 3);
+  renderSheet();
+}
+
+function poiHtml(sh) {
+  const it = curDay().items[sh.i];
+  const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${sh.name} ${it.address || it.place}`)}`;
+  let body;
+  if (sh.results === 'loading') body = '<div class="muted pad">근처에서 찾는 중…</div>';
+  else if (!sh.results.length) body = `<div class="muted pad">근처에서 정확한 위치를 찾지 못했어요. 지도 앱에서 직접 찾아보세요.</div>`;
+  else body = sh.results.map((r, k) => {
+    const walk = r.d != null ? `${esc(it.place)}에서 ${fmtDist(r.d)} · 🚶 약 ${fmtDur(estimateMin(r.d, 'WALK'))}` : '';
+    const me = S.pos ? ` · 내 위치에서 ${fmtDist(haversine(S.pos, r))}` : '';
+    return `<div class="poi-card">
+      <div class="poi-name">${esc(r.name)}</div>
+      ${r.address ? `<div class="muted small">${esc(r.address)}</div>` : ''}
+      <div class="small poi-dist">${walk}${me}</div>
+      <div class="chips"><button class="chip-btn on" data-act="poiMap" data-k="${k}">🗺️ 지도에서 보기</button><button class="chip-btn" data-act="poiNav" data-k="${k}">길안내</button><button class="chip-btn" data-act="poiAdd" data-k="${k}">＋ 일정에 넣기</button></div>
+    </div>`;
+  }).join('');
+  return `<div class="sheet-head"><div><div class="st-label">주변 추천 · ${esc(it.place)} 근처</div><b>${esc(sh.name)}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    ${body}
+    <div class="st-actions"><button data-act="poiWeb" data-url="${esc(web)}">${inKorea(it) ? '지도 앱에서 찾아보기' : '구글맵에서 찾아보기'}</button></div>`;
+}
+
+// 추천 장소를 그 일정 바로 뒤에 넣기 (걸어서, 30분 머묾)
+function poiAdd(r, i) {
+  const d = curDay();
+  d.items.splice(i + 1, 0, { id: newId(), place: r.name, address: r.address || '', lat: r.lat, lng: r.lng, time: null, stay: 30, mode: 'WALK', memo: `${d.items[i].place} 주변 추천`, notes: [] });
+  savePlan(); recompute(); closeSheet(); renderAll(false); prefetchLegs(); scheduleAlarms();
+  toast(`${r.name}을(를) ${d.items[i].place} 다음 일정으로 넣었어요`);
 }
 
 function closeSheet() {
@@ -1347,6 +1400,17 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
+    case 'poi': openPoi(i, el.dataset.name); break;
+    case 'poiMap': {
+      const sh = S.sheet, r = sh.results[+el.dataset.k];
+      S.poi = { lat: r.lat, lng: r.lng, name: r.name, from: sh.i };
+      closeSheet();
+      openMap(sh.i, 'bottom');
+      break;
+    }
+    case 'poiNav': { const r = S.sheet.results[+el.dataset.k]; openExternal(navUrl(null, r, 'WALK', r.name)); break; }
+    case 'poiAdd': poiAdd(S.sheet.results[+el.dataset.k], S.sheet.i); break;
+    case 'poiWeb': openExternal(el.dataset.url); break;
     case 'toggleMore': {
       const id = d.items[i].id;
       S.open = S.open === id ? null : id;
