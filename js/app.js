@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160103';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160108';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160103';
-import { createMap } from './map.js?v=202610160103';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160103';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160103';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160103';
+} from './schedule.js?v=202610160108';
+import { createMap } from './map.js?v=202610160108';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160108';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160108';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160108';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1863,10 +1863,12 @@ async function locate(it, anchor) {
   return null;
 }
 
-let geocoding = false;
+let geocoding = false, geocodeAgain = false;
 async function geocodeMissing() {
-  if (geocoding) return;
+  // 찾는 중에 새 일정을 불러오면, 지금 것이 끝난 뒤 새 일정으로 한 번 더
+  if (geocoding) { geocodeAgain = true; return; }
   geocoding = true;
+  const plan = S.plan;
   try {
     let fixed = dropFarPlaces(), found = 0, failed = 0;
     // 두 번까지: 처음 찾은 결과가 그날 다른 장소들과 동떨어지면 지우고 한 번 더
@@ -1875,6 +1877,7 @@ async function geocodeMissing() {
       if (!todo.length) break;
       failed = 0;
       for (const [d, it] of todo) {
+        if (S.plan !== plan) return; // 다른 일정을 불러왔으면 그만
         const q = it.address || it.place;
         let g = S.geoCache[q];
         if (!g) {
@@ -1901,6 +1904,7 @@ async function geocodeMissing() {
     if (failed) toast(`위치를 찾지 못한 장소 ${failed}곳: 목록의 "위치 없음"을 누르면 바로 고를 수 있어요`, 6000);
   } finally {
     geocoding = false;
+    if (geocodeAgain) { geocodeAgain = false; geocodeMissing(); }
   }
 }
 
