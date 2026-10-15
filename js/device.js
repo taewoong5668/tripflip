@@ -17,8 +17,29 @@ export const Geo = {
       return () => G.clearWatch({ id });
     }
     if (!navigator.geolocation) { onErr(new Error('이 기기는 위치 기능을 지원하지 않아요')); return () => {}; }
-    const id = navigator.geolocation.watchPosition(p => onPos(norm(p)), onErr, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    // 웹: 정확한 GPS는 실내·휴대폰 브라우저에서 오래 걸리거나 실패하기 쉬움
+    // → 먼저 와이파이·통신망 기반 대략 위치를 빨리 받고, 정확한 GPS는 계속 따라가며 덮어씀
+    let best = null;
+    const take = p => {
+      const n = norm(p);
+      // 더 정확하거나, 30초 넘게 지난 위치면 바꿈 (대략 위치가 정확한 GPS를 덮지 않게)
+      if (!best || n.acc <= best.acc * 1.5 || n.ts - best.ts > 30000) { best = n; onPos(n); }
+    };
+    this.once().then(p => p && take({ coords: { latitude: p.lat, longitude: p.lng, accuracy: p.acc }, timestamp: p.ts }));
+    const id = navigator.geolocation.watchPosition(take, e => {
+      onErr(e);
+      if (e.code !== 1) this.once().then(p => p && take({ coords: { latitude: p.lat, longitude: p.lng, accuracy: p.acc }, timestamp: p.ts }));
+    }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 });
     return () => navigator.geolocation.clearWatch(id);
+  },
+
+  /** 위치 한 번 받기 (대략 위치라도 빨리). 실패하면 null */
+  once(highAccuracy = false) {
+    const G = isNative && plugin('Geolocation');
+    if (G) return G.getCurrentPosition({ enableHighAccuracy: highAccuracy, timeout: 10000, maximumAge: 60000 }).then(norm).catch(() => null);
+    if (!navigator.geolocation) return Promise.resolve(null);
+    return new Promise(res => navigator.geolocation.getCurrentPosition(p => res(norm(p)), () => res(null),
+      { enableHighAccuracy: highAccuracy, maximumAge: 5 * 60000, timeout: 10000 }));
   },
 };
 

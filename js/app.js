@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610160144';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610160149';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160144';
-import { createMap } from './map.js?v=202610160144';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree } from './google.js?v=202610160144';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160144';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160144';
+} from './schedule.js?v=202610160149';
+import { createMap } from './map.js?v=202610160149';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree } from './google.js?v=202610160149';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160149';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160149';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -928,6 +928,8 @@ async function updateLiveRoute(force) {
 
 function onPos(p) {
   S.pos = p;
+  // 다음에 켤 때 바로 쓰도록 마지막 위치 기억 (1분에 한 번만 저장)
+  if (!p.saved && Date.now() - (onPos.savedAt || 0) > 60000) { onPos.savedAt = Date.now(); store.set('tg.pos', p); }
   S.map?.setMe(p);
   if (S.follow) S.map?.panTo(p);
   if (isLive()) detect();
@@ -1269,9 +1271,17 @@ function suggestAdd(r) {
 // ---------- 내 주변 편의점·약국·병원 ----------
 async function nearMe(type) {
   const v = NEAR_ME[type];
-  if (!S.pos) { toast('내 위치를 찾는 중이에요. 위치 권한을 켜고 잠시 뒤 다시 눌러 주세요', 4000); return; }
-  const me = { lat: S.pos.lat, lng: S.pos.lng };
-  S.sheet = { type: 'near', near: type, me, results: 'loading' };
+  S.sheet = { type: 'near', near: type, me: null, results: 'locating' };
+  renderSheet();
+  // 방금 받은 위치가 없으면 지금 한 번 더 요청 (대략 위치 → 안 되면 GPS) → 그래도 없으면 지난번 위치
+  let pos = S.pos && !S.pos.stale && Date.now() - S.pos.ts < 120000 ? S.pos : null;
+  if (!pos) pos = (await Geo.once()) || (await Geo.once(true));
+  if (pos && !S.settings.sim) onPos(pos);
+  pos ||= S.pos;
+  if (S.sheet?.type !== 'near' || S.sheet.near !== type) return;
+  if (!pos) { S.sheet.results = 'nopos'; renderSheet(); return; }
+  const me = { lat: pos.lat, lng: pos.lng };
+  Object.assign(S.sheet, { me, stale: !!pos.stale, results: 'loading' });
   renderSheet();
   let list = [];
   try {
@@ -1297,7 +1307,12 @@ async function nearMe(type) {
 function nearHtml(sh) {
   const v = NEAR_ME[sh.near];
   let body;
-  if (sh.results === 'loading') body = `<div class="muted pad">내 주변 ${v.label}${eul(v.label)} 찾는 중…</div>`;
+  if (sh.results === 'locating') body = '<div class="muted pad">📍 내 위치를 확인하는 중… (최대 20초)</div>';
+  else if (sh.results === 'nopos') body = `<div class="muted pad">내 위치를 알 수 없어요.<br>
+    · 휴대폰 설정에서 <b>위치(GPS)</b>가 켜져 있는지<br>
+    · 브라우저 주소창 왼쪽 자물쇠(또는 ⓘ) → <b>위치 허용</b>인지 확인해 주세요.<br>
+    · 아이폰은 설정 → 개인정보 보호 → 위치 서비스 → Safari 웹사이트 → "사용하는 동안"</div>`;
+  else if (sh.results === 'loading') body = `<div class="muted pad">내 주변 ${v.label}${eul(v.label)} 찾는 중…</div>`;
   else if (!sh.results.length) body = `<div class="muted pad">가까운 ${v.label}${eul(v.label)} 찾지 못했어요. 지도 앱에서 찾아보세요.</div>`;
   else body = sh.results.map((r, j) => `<div class="place-card">
       <div class="place-top"><div class="place-name">${esc(r.name)}</div><div class="place-rate">${fmtDist(r.d)}</div></div>
@@ -1305,8 +1320,8 @@ function nearHtml(sh) {
       <div class="chips"><button class="chip-btn on" data-act="nearNav" data-j="${j}">길안내</button></div>
     </div>`).join('');
   const q = { conv: 'convenience store', pharmacy: 'pharmacy', hospital: 'hospital' }[sh.near];
-  const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${q} near ${sh.me.lat},${sh.me.lng}`)}`;
-  return `<div class="sheet-head"><div><div class="st-label">지금 내 위치 기준 · 가까운 순</div><b>${v.icon} 내 주변 ${v.label}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+  const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sh.me ? `${q} near ${sh.me.lat},${sh.me.lng}` : q)}`;
+  return `<div class="sheet-head"><div><div class="st-label">${sh.stale ? '마지막으로 확인한 내 위치 기준' : '지금 내 위치 기준'} · 가까운 순</div><b>${v.icon} 내 주변 ${v.label}</b></div><button class="x" data-act="closeSheet">✕</button></div>
     ${sh.near === 'hospital' ? '<div class="muted small pad">응급 상황이면 바로 현지 응급번호로 전화하세요.</div>' : ''}
     ${body}
     <div class="st-actions"><button data-act="poiWeb" data-url="${esc(web)}">지도 앱에서 더 찾아보기</button></div>`;
@@ -2514,6 +2529,10 @@ async function init() {
   S.map.onDrag(() => (S.follow = false));
   renderMap(true);
 
+  // 지난번 위치(3시간 안)를 먼저 써 둠: 새 위치를 받기 전에도 내 주변 찾기 등이 바로 되게.
+  // 오래된 위치라 도착 판정에는 쓰지 않음 (stale)
+  const last = store.get('tg.pos', null);
+  if (last && Date.now() - last.ts < 3 * 3600000 && !S.pos) S.pos = { ...last, saved: true, stale: true };
   Geo.watch(
     p => { if (!S.settings.sim) onPos(p); },
     err => { if (err?.code === 1 || /denied|permission/i.test(err?.message || '')) toast('위치 권한이 꺼져 있어요. 설정에서 위치를 허용해 주세요', 6000); },
