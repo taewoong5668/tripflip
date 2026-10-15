@@ -1,11 +1,11 @@
-import { readPlanFile, parsePlanText } from './parser.js?v=202610160048';
+import { readPlanFile, parsePlanText } from './parser.js?v=202610160056';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160048';
-import { createMap } from './map.js?v=202610160048';
-import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160048';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160048';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160048';
+} from './schedule.js?v=202610160056';
+import { createMap } from './map.js?v=202610160056';
+import { routeFor, inKorea, searchPlace, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyFood, nearbyFoodFree } from './google.js?v=202610160056';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160056';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160056';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1362,7 +1362,7 @@ const resultsHtml = (list, act) => list == null ? ''
       const far = ref ? ` · ${fmtDist(haversine(ref, r))}` : '';
       return `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}<span class="muted small">${far}</span></b><span class="muted small">${esc(r.address)}</span></button>`;
     }).join('')}</div>`
-      : '<div class="muted pad">검색 결과가 없어요. 다른 이름이나 영어로 검색해 보세요.</div>';
+      : '<div class="muted pad">검색 결과가 없어요.${S.settings.apiKey ? ' 다른 이름으로 검색해 보세요.' : '<br>무료 지도는 해외 가게의 한글 이름을 잘 몰라요. <b>영어 이름 + 도시</b>(예: Hurricanes Grill Sydney)로 검색하거나 🗺️ 지도로 보기에서 직접 골라 주세요.'}</div>';
 
 function placeBox(p, empty) {
   if (!hasPos(p)) return `<div class="muted">${empty}</div>`;

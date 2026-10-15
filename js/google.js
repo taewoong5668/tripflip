@@ -108,14 +108,41 @@ export async function searchPlacesFree(query, near) {
   let u = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ko&q=${encodeURIComponent(query)}`;
   // near가 있으면 그 주변(약 5km) 안에서만 찾기
   if (near) u += `&viewbox=${near.lng - 0.05},${near.lat + 0.05},${near.lng + 0.05},${near.lat - 0.05}&bounded=1`;
+  let list = [], err = null;
+  try {
+    const res = await fetch(u);
+    if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
+    list = (await res.json()).map(p => ({
+      name: p.name || p.display_name.split(',')[0],
+      address: p.display_name,
+      lat: +p.lat,
+      lng: +p.lon,
+    }));
+  } catch (e) { err = e; }
+  if (list.length) return list;
+  // 못 찾으면 Photon으로 한 번 더: 글자가 조금 달라도(띄어쓰기·일부 이름) 찾아 줌. "광주 유스퀘어" 같은 경우
+  try { list = await searchPhoton(query, near); } catch (e) { if (err) throw err; throw e; }
+  return list;
+}
+
+async function searchPhoton(query, near) {
+  let u = `https://photon.komoot.io/api/?limit=6&q=${encodeURIComponent(query)}`;
+  if (near) u += `&lat=${near.lat}&lon=${near.lng}`;
   const res = await fetch(u);
   if (!res.ok) throw new Error(`검색 실패 (${res.status})`);
-  return (await res.json()).map(p => ({
-    name: p.name || p.display_name.split(',')[0],
-    address: p.display_name,
-    lat: +p.lat,
-    lng: +p.lon,
-  }));
+  const json = await res.json();
+  return (json.features || []).filter(f => {
+    const [lng, lat] = f.geometry.coordinates;
+    // near가 있으면 Nominatim처럼 주변(약 5km)만
+    return !near || (Math.abs(lat - near.lat) < 0.05 && Math.abs(lng - near.lng) < 0.05);
+  }).map(f => {
+    const p = f.properties, [lng, lat] = f.geometry.coordinates;
+    return {
+      name: p.name || p.street || query,
+      address: [p.name, p.housenumber && p.street ? `${p.street} ${p.housenumber}` : p.street, p.district, p.city, p.state, p.country].filter(Boolean).join(', '),
+      lat, lng,
+    };
+  });
 }
 
 // 식사 종류별로 찾을 가게 종류
