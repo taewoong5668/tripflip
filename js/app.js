@@ -1,11 +1,12 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610160209';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171128';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610160209';
-import { createMap } from './map.js?v=202610160209';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree } from './google.js?v=202610160209';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610160209';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610160209';
+} from './schedule.js?v=202610171128';
+import { createMap } from './map.js?v=202610171128';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY } from './google.js?v=202610171128';
+import { PROXY_URL } from './config.js?v=202610171128';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171128';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171128';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,6 +18,8 @@ const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).sli
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
 const DEFAULTS = { apiKey: '', radius: 100, lead: 10, buffer: 5, sim: false };
+// 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(있을 때), 둘 다 없으면 '' (무료 지도)
+const gkey = () => S.settings.apiKey || (PROXY_URL ? VIA_PROXY : '');
 const S = {
   settings: { ...DEFAULTS, ...store.get('tg.settings', {}) },
   plan: store.get('tg.plan', null) || emptyPlan(),
@@ -910,7 +913,7 @@ async function updateLiveRoute(force) {
     return;
   }
   if (S.live?.id !== target.id) S.live = { id: target.id, to: target, path: null, at: 0, from: null };
-  const L = S.live, key = S.settings.apiKey, now = Date.now();
+  const L = S.live, key = gkey(), now = Date.now();
   const offRoute = L.path?.length && Math.min(...L.path.map(p => haversine(S.pos, p))) > 80;
   const stale = !L.path || (now - L.at > 60000 && haversine(S.pos, L.from) > 60);
   const canRoute = key || target.mode !== 'TRANSIT'; // 도보·차는 키 없이도 무료 경로로
@@ -968,7 +971,7 @@ async function openRouteSheet(i) {
   const modes = ['TRANSIT', 'WALK', 'DRIVE'];
   if (to.mode === 'BICYCLE') modes.push('BICYCLE');
   const departAt = fromMe ? Date.now() : atMs(d.date, S.cur.sched[i - 1].depart);
-  const key = S.settings.apiKey;
+  const key = gkey();
   const results = (await Promise.all(modes.map(async mode => {
     if (mode === 'WALK' && dist > 6000 && to.mode !== 'WALK') return null;
     if (!key && mode === 'TRANSIT') return { mode, dur: estimateMin(dist, mode), dist, est: true };
@@ -1053,7 +1056,7 @@ function routeSheetHtml(sh) {
     } else if (r?.error) {
       detail = `<div class="warn">경로를 받지 못했어요: ${esc(r.error)}</div>`;
     }
-    if (!S.settings.apiKey && r?.mode === 'TRANSIT') detail += '<div class="muted small pad">대중교통 노선은 설정에 구글맵 API 키를 넣어야 보여요. 지금은 직선거리로 추정한 시간이에요.</div>';
+    if (!gkey() && r?.mode === 'TRANSIT') detail += '<div class="muted small pad">대중교통 노선은 설정에 구글맵 API 키를 넣어야 보여요. 지금은 직선거리로 추정한 시간이에요.</div>';
     const navApp = inKorea(to) ? '카카오맵' : '구글맵';
     body = `<div class="mode-cards">${cards}</div>${detail}
       <div class="st-actions">
@@ -1207,7 +1210,7 @@ async function openSuggest(type, k) {
   let list = [];
   try {
     for (const c of centers) {
-      let part = S.settings.apiKey ? await nearbyPlaces(S.settings.apiKey, c, type) : [];
+      let part = gkey() ? await nearbyPlaces(gkey(), c, type) : [];
       if (!part.length) part = await nearbyPlacesFree(c, type);
       if (!part.length) part = await nearbyPlacesFree(c, type, 1500); // 가까이 없으면 조금 더 넓게
       list.push(...part);
@@ -1243,7 +1246,7 @@ function suggestHtml(sh) {
   const when = sh.slot.when || `${fmtClock(sh.slot.center)} 무렵`;
   return `<div class="sheet-head"><div><div class="st-label">${esc(sh.near)} 근처 · ${when}</div><b>${sh.slot.icon || '🍽'} ${sh.slot.icon ? `${what} 추천` : `${sh.slot.label} 추천`}</b></div><button class="x" data-act="closeSheet">✕</button></div>
     ${sh.slot.type === 'night' ? '<div class="muted small pad">영업시간이 보이면 확인하고 가세요. 밤늦게는 문 닫은 곳도 있어요.</div>' : ''}
-    ${!S.settings.apiKey ? '<div class="muted small pad">무료 지도 기준 가까운 순이에요. 설정에 구글 키를 넣으면 평점 높은 순으로 보여줘요.</div>' : ''}
+    ${!gkey() ? '<div class="muted small pad">무료 지도 기준 가까운 순이에요. 설정에 구글 키를 넣으면 평점 높은 순으로 보여줘요.</div>' : ''}
     ${body}
     <div class="st-actions"><button data-act="poiWeb" data-url="${esc(web)}">지도 앱에서 더 찾아보기</button></div>`;
 }
@@ -1286,7 +1289,7 @@ async function nearMe(type) {
   let list = [];
   try {
     for (const radius of [1500, 5000]) { // 가까이 없으면 더 넓게
-      if (S.settings.apiKey) list = await nearbyPlaces(S.settings.apiKey, me, type, radius, 'DISTANCE').catch(() => []);
+      if (gkey()) list = await nearbyPlaces(gkey(), me, type, radius, 'DISTANCE').catch(() => []);
       if (!list.length) list = await nearbyPlacesFree(me, type, radius);
       if (list.length) break;
     }
@@ -1363,7 +1366,7 @@ async function openPoi(i, name) {
   const near = hasPos(it) ? it : null;
   let list = [];
   try {
-    if (S.settings.apiKey) list = await searchPlaces(S.settings.apiKey, `${name} ${it.address || it.place}`, near);
+    if (gkey()) list = await searchPlaces(gkey(), `${name} ${it.address || it.place}`, near);
     if (!list.length) list = await searchPlacesFree(name, near);
   } catch { /* 아래에서 결과 없음으로 안내 */ }
   if (S.sheet?.type !== 'poi' || S.sheet.name !== name) return;
@@ -1500,7 +1503,7 @@ const resultsHtml = (list, act) => list == null ? ''
       const far = ref ? ` · ${fmtDist(haversine(ref, r))}` : '';
       return `<button data-act="${act}" data-k="${k}"><b>${esc(r.name)}<span class="muted small">${far}</span></b><span class="muted small">${esc(r.address)}</span></button>`;
     }).join('')}</div>`
-      : `<div class="muted pad">검색 결과가 없어요.${S.settings.apiKey ? ' 다른 이름으로 검색해 보세요.' : '<br>무료 지도는 해외 가게의 한글 이름을 잘 몰라요. <b>영어 이름 + 도시</b>(예: Hurricanes Grill Sydney)로 검색하거나 🗺️ 지도로 보기에서 직접 골라 주세요.'}</div>`;
+      : `<div class="muted pad">검색 결과가 없어요.${gkey() ? ' 다른 이름으로 검색해 보세요.' : '<br>무료 지도는 해외 가게의 한글 이름을 잘 몰라요. <b>영어 이름 + 도시</b>(예: Hurricanes Grill Sydney)로 검색하거나 🗺️ 지도로 보기에서 직접 골라 주세요.'}</div>`;
 
 function placeBox(p, empty) {
   if (!hasPos(p)) return `<div class="muted">${empty}</div>`;
@@ -1656,7 +1659,7 @@ async function edSearch(target = 'dest') {
   const near = d?.items.find(hasPos) || (hasPos(sh.origin) ? sh.origin : null) || S.pos || null;
   let res;
   try {
-    if (S.settings.apiKey) res = await searchPlaces(S.settings.apiKey, q, near);
+    if (gkey()) res = await searchPlaces(gkey(), q, near);
     else {
       // 무료 검색: 그날 장소 근처에서 먼저, 없으면 전체에서
       res = near ? await searchPlacesFree(q, near) : [];
@@ -1766,7 +1769,9 @@ function settingsHtml() {
   const s = S.settings;
   return `<div class="sheet-head"><b>설정</b><button class="x" data-act="closeSheet">✕</button></div>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
-    <div class="muted small">키는 이 기기에만 저장돼요. 비워 두면 무료 지도와 추정 시간으로 동작해요.</div>
+    <div class="muted small">${PROXY_URL
+      ? '비워 두어도 트립플립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
+      : '키는 이 기기에만 저장돼요. 비워 두면 무료 지도와 추정 시간으로 동작해요.'}</div>
     <label class="field">도착으로 인정할 거리 (m)<input id="setRadius" type="number" min="20" max="1000" value="${s.radius}"></label>
     <label class="field">출발 몇 분 전에 미리 알림 (0이면 끔)<input id="setLead" type="number" min="0" max="120" value="${s.lead}"></label>
     <label class="field">예약 시간 전 여유 (분)<input id="setBuffer" type="number" min="0" max="60" value="${s.buffer}"></label>
@@ -1958,7 +1963,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 장소 하나의 위치 찾기: 같은 날 다른 장소가 있으면 그 근처에서, 너무 먼 결과는 버림
 async function findPlace(q, anchor) {
-  const key = S.settings.apiKey;
+  const key = gkey();
   const near = r => !anchor || haversine(anchor, r) < FAR_KM * 1000;
   if (key) return (await searchPlaces(key, q, anchor)).find(near) || null;
   await sleep(1100); // 무료 검색은 1초에 한 번까지
@@ -2015,7 +2020,7 @@ async function geocodeMissing() {
         const q = it.address || it.place;
         let g = S.geoCache[q];
         if (!g) {
-          if (!S.settings.apiKey) toast(`📍 장소 위치 찾는 중… ${k + 1}/${todo.length}`, 8000);
+          if (!gkey()) toast(`📍 장소 위치 찾는 중… ${k + 1}/${todo.length}`, 8000);
           try {
             g = await locate(it, anchorFor(d, it));
             errors = 0;
@@ -2055,7 +2060,7 @@ async function geocodeMissing() {
 
 let prefetchRun = 0;
 async function prefetchLegs() {
-  const key = S.settings.apiKey, d = curDay();
+  const key = gkey(), d = curDay();
   if (!d) return;
   const run = ++prefetchRun;
   for (let i = 1; i < d.items.length; i++) {

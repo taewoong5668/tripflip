@@ -1,4 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
+import { PROXY_URL } from './config.js?v=202610171128';
 
 const ROUTE_FIELDS = [
   'routes.duration',
@@ -31,10 +32,21 @@ function fetchT(url, opts = {}, ms = 10000) {
     .finally(() => clearTimeout(timer));
 }
 
+// 키 대신 이 값을 받으면 구글에 직접 가지 않고 중간 서버를 거침 (구글 키는 서버에만 있음)
+export const VIA_PROXY = 'proxy';
+const PROXY_PATH = {
+  'https://places.googleapis.com/v1/places:searchText': '/places:searchText',
+  'https://places.googleapis.com/v1/places:searchNearby': '/places:searchNearby',
+  'https://routes.googleapis.com/directions/v2:computeRoutes': '/routes:computeRoutes',
+};
+
 async function post(url, key, fields, body) {
-  const res = await fetchT(url, {
+  const proxied = key === VIA_PROXY;
+  const headers = { 'Content-Type': 'application/json', 'X-Goog-FieldMask': fields };
+  if (!proxied) headers['X-Goog-Api-Key'] = key;
+  const res = await fetchT(proxied ? PROXY_URL.replace(/\/$/, '') + PROXY_PATH[url] : url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': fields },
+    headers,
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
