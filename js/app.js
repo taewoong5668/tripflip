@@ -1,12 +1,12 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171128';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171149';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610171128';
-import { createMap } from './map.js?v=202610171128';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY } from './google.js?v=202610171128';
-import { PROXY_URL } from './config.js?v=202610171128';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171128';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171128';
+} from './schedule.js?v=202610171149';
+import { createMap } from './map.js?v=202610171149';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610171149';
+import { PROXY_URL } from './config.js?v=202610171149';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171149';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171149';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,9 +17,9 @@ const store = {
 const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
-const DEFAULTS = { apiKey: '', radius: 100, lead: 10, buffer: 5, sim: false };
-// 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(있을 때), 둘 다 없으면 '' (무료 지도)
-const gkey = () => S.settings.apiKey || (PROXY_URL ? VIA_PROXY : '');
+const DEFAULTS = { apiKey: '', radius: 100, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false };
+// 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
+const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
   settings: { ...DEFAULTS, ...store.get('tg.settings', {}) },
   plan: store.get('tg.plan', null) || emptyPlan(),
@@ -1077,7 +1077,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml }[sh.type](sh);
 }
 
 // ---------- 일정을 넣거나 바꿀 때 미리 계산해서 예약 지각·밀림 알려주기 ----------
@@ -1764,6 +1764,52 @@ function movePlace(d, idx, dir) {
   savePlan(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
 }
 
+// ---------- 초대 코드 (지인 전용 구글 검색) ----------
+function openInvite() {
+  S.sheet = { type: 'invite', err: '', busy: false };
+  renderSheet();
+  setTimeout(() => $('#inviteCode')?.focus(), 300);
+}
+
+function inviteHtml(sh) {
+  return `<div class="sheet-head"><div><div class="st-label">트립플립</div><b>🔑 초대 코드</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <p class="muted">지인에게 받은 초대 코드를 넣으면 구글 장소 검색·맛집 추천·대중교통 경로를 쓸 수 있어요. 코드가 없어도 무료 지도로 쓸 수 있어요.</p>
+    <label class="field">초대 코드<input id="inviteCode" inputmode="numeric" autocomplete="off" value="${esc(S.settings.invite)}" placeholder="예: 1234"></label>
+    ${sh.err ? `<div class="dt-warn">⚠ ${esc(sh.err)}</div>` : ''}
+    <div class="st-actions"><button class="primary" data-act="inviteOk" ${sh.busy ? 'disabled' : ''}>${sh.busy ? '확인 중…' : '확인'}</button><button data-act="inviteSkip">코드 없이 쓰기</button></div>`;
+}
+
+async function inviteOk() {
+  const sh = S.sheet, code = $('#inviteCode').value.trim();
+  if (!code) { sh.err = '코드를 입력해 주세요'; renderSheet(); return; }
+  sh.busy = true; sh.err = ''; renderSheet();
+  let ok;
+  try { ok = await checkInvite(code); } catch { ok = null; }
+  if (S.sheet !== sh) return;
+  sh.busy = false;
+  if (ok === true) {
+    Object.assign(S.settings, { invite: code, inviteAsked: true });
+    store.set('tg.settings', S.settings);
+    setInvite(code);
+    closeSheet();
+    toast('확인됐어요! 이제 구글 검색·추천·경로를 쓸 수 있어요', 4000);
+    recompute(); renderAll(false); geocodeMissing(); prefetchLegs();
+    return;
+  }
+  sh.err = ok === 'wait' ? '너무 많이 틀렸어요. 1분 뒤 다시 해 주세요' : ok === false ? '코드가 맞지 않아요' : '인터넷 연결을 확인해 주세요';
+  renderSheet();
+}
+
+// 서버의 초대 코드가 바뀌어 거절됨 → 저장된 코드 지우고 다시 물어봄
+function inviteRejected() {
+  if (!S.settings.invite) return;
+  S.settings.invite = '';
+  store.set('tg.settings', S.settings);
+  setInvite('');
+  toast('초대 코드가 바뀌었어요. 새 코드를 넣어 주세요', 5000);
+  if (!S.sheet) openInvite();
+}
+
 // ---------- 설정 ----------
 function settingsHtml() {
   const s = S.settings;
@@ -1772,6 +1818,8 @@ function settingsHtml() {
     <div class="muted small">${PROXY_URL
       ? '비워 두어도 트립플립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
       : '키는 이 기기에만 저장돼요. 비워 두면 무료 지도와 추정 시간으로 동작해요.'}</div>
+    ${PROXY_URL ? `<div class="field">초대 코드 <span class="muted small">(지인 전용 구글 검색)</span>
+      <div class="st-actions"><span class="muted small">${s.invite ? '✅ 입력됨' : '아직 없음 · 무료 지도로 동작 중'}</span><button data-act="invite">${s.invite ? '코드 바꾸기' : '코드 입력'}</button></div></div>` : ''}
     <label class="field">도착으로 인정할 거리 (m)<input id="setRadius" type="number" min="20" max="1000" value="${s.radius}"></label>
     <label class="field">출발 몇 분 전에 미리 알림 (0이면 끔)<input id="setLead" type="number" min="0" max="120" value="${s.lead}"></label>
     <label class="field">예약 시간 전 여유 (분)<input id="setBuffer" type="number" min="0" max="60" value="${s.buffer}"></label>
@@ -1793,6 +1841,7 @@ function saveSettings() {
   const num = (id, def) => { const v = parseInt($(id).value, 10); return isFinite(v) ? v : def; };
   const old = S.settings;
   S.settings = {
+    ...old,
     apiKey: $('#setKey').value.trim(),
     radius: Math.min(1000, Math.max(20, num('#setRadius', 100))),
     lead: Math.min(120, Math.max(0, num('#setLead', 10))),
@@ -2241,6 +2290,9 @@ async function act(name, el) {
       break;
     }
     case 'saveSettings': saveSettings(); break;
+    case 'invite': openInvite(); break;
+    case 'inviteOk': inviteOk(); break;
+    case 'inviteSkip': S.settings.inviteAsked = true; store.set('tg.settings', S.settings); closeSheet(); toast('무료 지도로 쓸게요. 코드는 ⚙️ 설정에서 언제든 넣을 수 있어요', 5000); break;
     case 'askNotify': toast((await Alarms.requestPermission()) ? '알림이 허용됐어요' : '알림이 허용되지 않았어요'); break;
     case 'testAlarm':
       await Alarms.requestPermission();
@@ -2559,8 +2611,12 @@ async function init() {
   );
 
   ackWake();
+  setInvite(S.settings.invite);
+  proxyHooks.onInviteRejected = inviteRejected;
   if (S.plan.days.length) { geocodeMissing(); prefetchLegs(); scheduleAlarms(true); }
   if (isNative) Alarms.requestPermission();
+  // 지인 전용 구글 검색: 처음 한 번 초대 코드를 물어봄 (건너뛰면 무료 지도)
+  if (PROXY_URL && !S.settings.apiKey && !S.settings.invite && !S.settings.inviteAsked) setTimeout(openInvite, 600);
 }
 
 init();

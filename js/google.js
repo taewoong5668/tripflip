@@ -1,5 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
-import { PROXY_URL } from './config.js?v=202610171128';
+import { PROXY_URL } from './config.js?v=202610171149';
 
 const ROUTE_FIELDS = [
   'routes.duration',
@@ -40,16 +40,29 @@ const PROXY_PATH = {
   'https://routes.googleapis.com/directions/v2:computeRoutes': '/routes:computeRoutes',
 };
 
+// 지인 전용 초대 코드 (중간 서버가 확인). 코드가 틀리면 onInviteRejected로 앱에 알림
+let invite = '';
+export const setInvite = c => { invite = c || ''; };
+export const proxyHooks = { onInviteRejected: null };
+
+/** 초대 코드가 맞는지 서버에 확인 (구글은 안 부름). true / false, 너무 많이 틀리면 'wait' */
+export async function checkInvite(code) {
+  const res = await fetchT(PROXY_URL.replace(/\/$/, '') + '/check', { method: 'POST', headers: { 'X-Invite': code } }, 8000);
+  return res.ok ? true : res.status === 429 ? 'wait' : false;
+}
+
 async function post(url, key, fields, body) {
   const proxied = key === VIA_PROXY;
   const headers = { 'Content-Type': 'application/json', 'X-Goog-FieldMask': fields };
   if (!proxied) headers['X-Goog-Api-Key'] = key;
+  else headers['X-Invite'] = invite;
   const res = await fetchT(proxied ? PROXY_URL.replace(/\/$/, '') + PROXY_PATH[url] : url, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
+  if (proxied && json.error?.code === 'invite' && res.status === 401) proxyHooks.onInviteRejected?.(); // 코드가 바뀜
   if (!res.ok) throw new Error(json.error?.message || `요청 실패 (${res.status})`);
   return json;
 }
