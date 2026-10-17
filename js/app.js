@@ -1,12 +1,12 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171149';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171155';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610171149';
-import { createMap } from './map.js?v=202610171149';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610171149';
-import { PROXY_URL } from './config.js?v=202610171149';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171149';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171149';
+} from './schedule.js?v=202610171155';
+import { createMap } from './map.js?v=202610171155';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610171155';
+import { PROXY_URL } from './config.js?v=202610171155';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171155';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171155';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2100,7 +2100,11 @@ async function geocodeMissing() {
       toast(fixed ? `잘못 찾았던 장소 ${fixed}곳을 다시 찾았어요` : `장소 ${found}곳의 위치를 찾았어요`, 4000);
       recompute(); renderAll(true); prefetchLegs();
     }
-    if (failed) toast(`위치를 찾지 못한 장소 ${failed}곳: 목록의 "위치 없음"을 누르면 바로 고를 수 있어요`, 6000);
+    if (failed) {
+      // 무료 지도로 찾다가 실패: 초대 코드가 있으면 구글로 정확히 찾을 수 있다고 알려 주고 바로 입력 창
+      if (PROXY_URL && !gkey()) { toast(`위치를 찾지 못한 장소 ${failed}곳: 초대 코드를 넣으면 구글로 다시 찾아요`, 6000); if (!S.sheet) openInvite(); }
+      else toast(`위치를 찾지 못한 장소 ${failed}곳: 목록의 "위치 없음"을 누르면 바로 고를 수 있어요`, 6000);
+    }
   } finally {
     geocoding = false;
     if (geocodeAgain) { geocodeAgain = false; geocodeMissing(); }
