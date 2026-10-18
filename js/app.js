@@ -1,12 +1,12 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610181411';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610190614';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610181411';
-import { createMap } from './map.js?v=202610181411';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610181411';
-import { PROXY_URL } from './config.js?v=202610181411';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610181411';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610181411';
+} from './schedule.js?v=202610190614';
+import { createMap } from './map.js?v=202610190614';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610190614';
+import { PROXY_URL } from './config.js?v=202610190614';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610190614';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610190614';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -298,11 +298,11 @@ function renderStatus() {
     const t = todayStr(), last = sched[items.length - 1];
     const firstDep = atMs(d.date, sched[0].depart);
     const when = d.date < t ? '지난 일정 · 모두 완료' : d.date === addDays(t, 1) ? '내일 일정' : '예정된 일정';
-    el.innerHTML = `${quickNear()}<div class="st-label">${when}</div>
+    setStatusHtml(el, `${quickNear()}<div class="st-label">${when}</div>
       <div class="st-title">${esc(d.title || `장소 ${items.length}곳`)}</div>
       <div class="st-row">${fmtClock(sched[0].depart)} 출발 → ${fmtClock(last.arrive ?? last.depart)} 마침 · ${items.length}곳</div>
       ${d.date > t ? `<div class="st-big"><small>첫 출발까지</small><span data-cd="${firstDep}">${fmtCountdown(firstDep - now)}</span></div>` : ''}
-      ${d.date >= t ? `<div class="st-actions">${wakeButton(d)}<button data-act="toggleView">하루 동선 지도</button></div>` : ''}`;
+      ${d.date >= t ? `<div class="st-actions">${wakeButton(d)}<button data-act="toggleView">하루 동선 지도</button></div>` : ''}`);
     return;
   }
 
@@ -333,7 +333,10 @@ function renderStatus() {
       <div class="st-actions">${next ? legButtons(i + 1) + `<button data-act="depart" data-i="${i}">출발 처리</button>` : ''}</div>`;
   } else {
     const i = ph.i, it = items[i], s = sched[i], m = MODES[it.mode];
-    let live = `<div class="st-row">${S.pos ? '이 장소는 위치 정보가 없어요' : '내 위치 확인 중…'}</div>`;
+    // 내 위치가 아직 없으면 계획 도착 시각까지 남은 시간을 크게 (접힌 카드에도 보이게)
+    const arrMs = atMs(d.date, s.arrive);
+    let live = `<div class="st-big ${urgency(arrMs - now)}"><small>도착 예정까지</small><span data-cd="${arrMs}">${fmtCountdown(arrMs - now)}</span></div>
+      <div class="st-row">${S.pos ? '이 장소는 위치 정보가 없어요' : '내 위치 확인 중…'}</div>`;
     if (S.pos && hasPos(it)) {
       const { dist, est, eta } = liveEta(it);
       const diff = Math.round((eta - atMs(d.date, s.arrive)) / 60000);
@@ -347,7 +350,47 @@ function renderStatus() {
       ${moveVisual(d, i)}
       <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도로 길 보기</button><button data-act="nav" data-i="${i}">길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
   }
-  el.innerHTML = quickNear() + html;
+  setStatusHtml(el, quickNear() + html);
+}
+
+// 상태 카드: 평소엔 "출발까지 38:58"처럼 큰 숫자만, 누르면 아래로 펼쳐 자세히, 위로 쓸어 올리면 다시 접힘
+function setStatusHtml(el, html) {
+  const foldable = html.includes('st-big');
+  el.innerHTML = html + (foldable ? (S.statusOpen
+    ? '<button class="st-fold" data-fold="close" aria-label="접기">︿ 위로 밀어 접기</button>'
+    : '<div class="st-unfold">▾ 눌러서 자세히</div>') : '');
+  el.classList.toggle('compact', foldable && !S.statusOpen);
+}
+
+// 높이가 부드럽게 늘어나고 줄어들게
+function setStatusOpen(open) {
+  const el = $('#status');
+  if (!el || !!S.statusOpen === open) return;
+  const from = el.offsetHeight;
+  S.statusOpen = open;
+  renderStatus();
+  const to = el.offsetHeight;
+  el.style.height = `${from}px`;
+  el.offsetHeight; // 높이 고정 반영
+  el.classList.add('folding');
+  el.style.height = `${to}px`;
+  setTimeout(() => { el.classList.remove('folding'); el.style.height = ''; }, 320);
+}
+
+function setupStatusFold() {
+  const el = $('#status');
+  el.addEventListener('click', e => {
+    if (e.target.closest('[data-fold]')) { setStatusOpen(false); return; }
+    if (e.target.closest('button, a, [data-act]')) return; // 카드 안 버튼은 그대로
+    if (el.classList.contains('compact')) setStatusOpen(true);
+  });
+  let sx = 0, sy = 0;
+  el.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  el.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (S.statusOpen && dy < -50 && Math.abs(dx) < Math.abs(dy)) setStatusOpen(false); // 위로 쓸어 올림 → 접기
+    else if (!S.statusOpen && dy > 40 && Math.abs(dx) < Math.abs(dy) && el.classList.contains('compact')) setStatusOpen(true); // 아래로 당김 → 펼치기
+  }, { passive: true });
 }
 
 function wakeButton(d) {
@@ -2658,6 +2701,7 @@ async function init() {
   S.lastToday = todayStr();
   onBackButton(goBack);
   setupWebBack();
+  setupStatusFold();
   // 화면 층(목록·상세·지도)을 담는 무대는 절대 스크롤되면 안 됨: 브라우저가 밀어 버리면 바로 되돌림 (지도가 검게 비는 문제 방지)
   const stage = $('.stage');
   stage?.addEventListener('scroll', () => { if (stage.scrollLeft || stage.scrollTop) stage.scrollTo(0, 0); });
