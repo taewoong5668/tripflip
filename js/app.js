@@ -1,12 +1,12 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610171155';
+import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610181411';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610171155';
-import { createMap } from './map.js?v=202610171155';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610171155';
-import { PROXY_URL } from './config.js?v=202610171155';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610171155';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610171155';
+} from './schedule.js?v=202610181411';
+import { createMap } from './map.js?v=202610181411';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610181411';
+import { PROXY_URL } from './config.js?v=202610181411';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610181411';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610181411';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -198,6 +198,85 @@ function liveEta(it) {
   return { dist, est, eta: Date.now() + est * 60000 };
 }
 
+// ---------- 이동 중: 진행 막대 · 작은 지도 · 대중교통 단계 ----------
+const polyCache = new Map();
+const decodeCached = poly => {
+  if (!poly) return null;
+  if (!polyCache.has(poly)) polyCache.set(poly, decodePolyline(poly));
+  return polyCache.get(poly);
+};
+
+// 이전 장소에서 출발한 시각(실제 기록이 있으면 그것)과 지금까지 지난 분
+function moveTimes(d, i) {
+  const prev = d.items[i - 1], p = progOf(d.date)[prev.id] || {};
+  const dep = p.dep ?? atMs(d.date, S.cur.sched[i - 1].depart);
+  return { dep, elapsed: Math.max(0, (Date.now() - dep) / 60000) };
+}
+
+function moveVisual(d, i) {
+  const prev = d.items[i - 1], it = d.items[i];
+  if (!prev || !hasPos(prev) || !hasPos(it)) return '';
+  const leg = S.cur.legs[i] || {}, m = MODES[it.mode];
+  const { elapsed } = moveTimes(d, i);
+  // 얼마나 왔는지: 내 위치가 있으면 거리로, 없으면 시간으로
+  let ratio;
+  const total = leg.dist || haversine(prev, it) * 1.3;
+  if (S.pos && !S.pos.stale) ratio = 1 - liveEta(it).dist / total;
+  else ratio = leg.dur ? elapsed / leg.dur : 0;
+  ratio = Math.min(1, Math.max(0, ratio));
+  const pct = Math.round(ratio * 100);
+  const bar = `<div class="trip-prog">
+      <div class="tp-ends"><span>${esc(prev.place)}</span><span>${esc(it.place)}</span></div>
+      <div class="tp-bar"><div class="tp-fill" style="width:${pct}%"></div><span class="tp-dot start"></span><span class="tp-dot end"></span><span class="tp-me" style="left:${pct}%">${m.icon}</span></div>
+      <div class="tp-meta">${pct}% 왔어요${total ? ` · 전체 ${fmtDist(total)}` : ''}</div>
+    </div>`;
+  return bar + miniMapSvg(d, i) + transitSteps(leg, it, elapsed);
+}
+
+// 지도 화면에 가지 않아도 보이는 작은 동선 그림: 이전 장소(■) → 내 위치(●) → 다음 장소(◎)
+function miniMapSvg(d, i) {
+  const prev = d.items[i - 1], it = d.items[i], leg = S.cur.legs[i] || {};
+  const planned = decodeCached(leg.poly) || [prev, it];
+  const live = S.live?.id === it.id && S.live.path?.length && S.pos ? [S.pos, ...S.live.path] : null;
+  const me = S.pos && !S.pos.stale ? S.pos : null;
+  const pts = [...planned, prev, it, ...(me ? [me] : []), ...(live || [])];
+  const lat0 = pts.reduce((a, p) => a + p.lat, 0) / pts.length, k = Math.cos(lat0 * Math.PI / 180);
+  const xs = pts.map(p => p.lng * k), ys = pts.map(p => -p.lat);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const W = 320, H = 130, pad = 16;
+  const sc = Math.min((W - pad * 2) / Math.max(maxX - minX, 1e-6), (H - pad * 2) / Math.max(maxY - minY, 1e-6));
+  const ox = (W - (maxX - minX) * sc) / 2, oy = (H - (maxY - minY) * sc) / 2;
+  const P = p => [((p.lng * k - minX) * sc + ox).toFixed(1), ((-p.lat - minY) * sc + oy).toFixed(1)];
+  const line = a => a.map(P).map(q => q.join(',')).join(' ');
+  const [px, py] = P(prev), [tx, ty] = P(it);
+  const meDot = me ? (() => { const [mx, my] = P(me); return `<circle cx="${mx}" cy="${my}" r="9" class="mm-halo"/><circle cx="${mx}" cy="${my}" r="5" class="mm-me"/>`; })() : '';
+  return `<button class="mini-map" data-act="openMap" data-i="${i}" aria-label="지도로 크게 보기">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      <polyline points="${line(planned)}" class="mm-plan"/>
+      ${live ? `<polyline points="${line(live)}" class="mm-live"/>` : ''}
+      <rect x="${px - 5}" y="${py - 5}" width="10" height="10" rx="2" class="mm-start"/>
+      <circle cx="${tx}" cy="${ty}" r="7" class="mm-end"/><circle cx="${tx}" cy="${ty}" r="3" class="mm-end-in"/>
+      ${meDot}
+    </svg><span class="mm-hint">누르면 큰 지도</span></button>`;
+}
+
+// 대중교통: 🚶 3분 → 🚇 T1 4정거장 → 🚶 2분, 지금 단계 강조 (출발 뒤 지난 시간 기준)
+function transitSteps(leg, it, elapsed) {
+  if (it.mode !== 'TRANSIT' || !leg.segs?.length) return '';
+  let acc = 0, cur = leg.segs.length - 1;
+  for (let j = 0; j < leg.segs.length; j++) { acc += leg.segs[j].dur || 0; if (elapsed < acc) { cur = j; break; } }
+  const chip = (s, j) => {
+    const txt = s.type === 'TRANSIT'
+      ? `${s.icon} ${esc(s.line || '')}${s.stops ? ` ${s.stops}정거장` : ''}`
+      : `${s.type === 'WALK' ? '🚶' : '🚗'} ${fmtDur(s.dur)}`;
+    const tip = s.type === 'TRANSIT' && s.from ? ` title="${esc(s.from)} → ${esc(s.to)}"` : '';
+    return `<span class="ts-step ${j < cur ? 'done' : j === cur ? 'now' : ''}"${tip}>${txt}</span>`;
+  };
+  const now = leg.segs[cur];
+  const where = now.type === 'TRANSIT' ? `${esc(now.from)} → ${esc(now.to)} (${esc(now.headsign || '')})` : '';
+  return `<div class="transit-steps">${leg.segs.map(chip).join('<span class="ts-arrow">›</span>')}</div>${where ? `<div class="st-row small">지금: ${where}</div>` : ''}`;
+}
+
 // 카드 오른쪽 위 작은 버튼: 일정과 상관없이 지금 내 위치 근처 편의점·약국·병원
 const NEAR_ME = {
   conv: { icon: '🏪', label: '편의점' },
@@ -265,7 +344,8 @@ function renderStatus() {
     html = `<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label}</div>
       <div class="st-title">${esc(it.place)}</div>${live}
       <div class="st-row">계획 ${fmtClock(s.arrive)} 도착${it.time != null ? ' (예약)' : ''}</div>
-      <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도로 길 보기</button><button data-act="nav" data-i="${i}">구글 길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
+      ${moveVisual(d, i)}
+      <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도로 길 보기</button><button data-act="nav" data-i="${i}">길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
   }
   el.innerHTML = quickNear() + html;
 }
@@ -830,7 +910,9 @@ function panToFocus(scrollCard) {
   if (S.poi && S.poi.from === i && hasPos(it)) S.map.fit([it, S.poi]); // 주변 추천 장소와 함께
   else if (hasPos(prev) && hasPos(it)) S.map.fit([prev, it]);
   else if (hasPos(it)) S.map.panTo(it, 16);
-  if (scrollCard) document.querySelector(`.c-card[data-i="${i}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  // 카드 줄만 옆으로 움직임 (scrollIntoView는 지도 화면이 아직 들어오는 중일 때 화면 전체를 옆으로 밀어 버림)
+  const card = scrollCard && document.querySelector(`.c-card[data-i="${i}"]`), strip = $('#carousel');
+  if (card && strip) strip.scrollTo({ left: card.offsetLeft - (strip.clientWidth - card.offsetWidth) / 2, behavior: 'smooth' });
 }
 
 function focusMapItem(i, scrollCard = true) {
@@ -2576,6 +2658,9 @@ async function init() {
   S.lastToday = todayStr();
   onBackButton(goBack);
   setupWebBack();
+  // 화면 층(목록·상세·지도)을 담는 무대는 절대 스크롤되면 안 됨: 브라우저가 밀어 버리면 바로 되돌림 (지도가 검게 비는 문제 방지)
+  const stage = $('.stage');
+  stage?.addEventListener('scroll', () => { if (stage.scrollLeft || stage.scrollTop) stage.scrollTo(0, 0); });
   Alarms.onFire = showAlarm;
   await Alarms.init();
   S.selected = pickInitialDay();

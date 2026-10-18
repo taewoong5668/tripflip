@@ -159,6 +159,40 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .status::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,.08); }
 .status.calm { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .status.calm::after { display: none; }
+/* 이동 중: 진행 막대 · 작은 지도 · 대중교통 단계 (보라 카드 위, 어두운 차분 카드 위 모두) */
+.trip-prog { margin: 12px 0 4px; }
+.tp-ends { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; opacity: .9; }
+.tp-ends span { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-ends span:last-child { text-align: right; }
+.tp-bar { position: relative; height: 8px; margin: 14px 8px 6px; border-radius: 99px; background: rgba(255,255,255,.25); }
+.tp-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: #fff; transition: width .6s ease; }
+.tp-dot { position: absolute; top: 50%; width: 12px; height: 12px; margin-top: -6px; background: #fff; border: 3px solid currentColor; }
+.tp-dot.start { left: -6px; border-radius: 3px; }
+.tp-dot.end { right: -6px; border-radius: 50%; }
+.tp-me { position: absolute; top: 50%; transform: translate(-50%, -50%); font-size: 20px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); transition: left .6s ease; }
+.tp-meta { font-size: 12px; opacity: .85; text-align: center; }
+.mini-map { display: block; position: relative; width: 100%; margin: 10px 0 2px; padding: 0; border: 0; border-radius: 14px; overflow: hidden;
+  background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); cursor: pointer; }
+.mini-map svg { display: block; width: 100%; height: 130px; }
+.mm-plan { fill: none; stroke: rgba(255,255,255,.55); stroke-width: 3; stroke-dasharray: 2 6; stroke-linecap: round; stroke-linejoin: round; }
+.mm-live { fill: none; stroke: #fff; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.mm-start { fill: #fff; }
+.mm-end { fill: #fff; } .mm-end-in { fill: #7c3aed; }
+.mm-halo { fill: rgba(56,189,248,.35); } .mm-me { fill: #38bdf8; stroke: #fff; stroke-width: 2; }
+.mm-hint { position: absolute; right: 8px; bottom: 6px; font-size: 10px; font-weight: 700; opacity: .7; }
+.transit-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
+.ts-step { padding: 4px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.15); }
+.ts-step.done { opacity: .5; text-decoration: line-through; }
+.ts-step.now { background: #fff; color: #4f46e5; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.ts-arrow { opacity: .6; }
+.status.calm .tp-bar { background: var(--line); }
+.status.calm .tp-fill { background: var(--accent); }
+.status.calm .tp-dot { background: var(--card); color: var(--accent); }
+.status.calm .mini-map { background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
+.status.calm .mm-plan { stroke: var(--muted); } .status.calm .mm-live { stroke: var(--accent); }
+.status.calm .mm-start, .status.calm .mm-end { fill: var(--accent); } .status.calm .mm-end-in { fill: var(--card); }
+.status.calm .ts-step { background: var(--bg); } .status.calm .ts-step.now { background: var(--accent); color: #fff; }
+
 /* 카드 오른쪽 위 편의점·약국·병원 작은 버튼 */
 .quick-near { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 4px; }
 .quick-near button { width: 32px; height: 32px; padding: 0; border-radius: 10px; font-size: 16px; line-height: 1; display: grid; place-items: center;
