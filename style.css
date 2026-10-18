@@ -159,9 +159,33 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .status::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,.08); }
 .status.calm { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .status.calm::after { display: none; }
-/* 상태 카드 접기·펼치기: 접히면 위 한 줄 + 큰 숫자만 */
+/* 상태 카드: 지금 할 일 한 줄 · 펼치면 자세히 */
+.st-do { margin: 8px 0 2px; padding: 9px 12px; border-radius: 12px; background: rgba(255,255,255,.16); font-size: 15px; font-weight: 600; line-height: 1.4; }
+.st-do b { font-weight: 800; }
+.status.calm .st-do { background: var(--accent-soft); color: var(--text); }
+.muted-in { opacity: .75; font-weight: 500; }
+.st-off { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 99px; background: rgba(0,0,0,.25); font-size: 11px; }
+.st-row .bad { color: #ffd0d8; }
+.st-more { margin-top: 10px; }
+.st-more > * + * { margin-top: 10px; }
+.alts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.status .alt { background: rgba(255,255,255,.14); }
+.alt { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px; border: 0; border-radius: 12px; background: rgba(255,255,255,.14); color: inherit; text-align: left; box-shadow: none; }
+.alt b { font-size: 15px; } .alt small { font-size: 11px; opacity: .85; } .alt-ic { font-size: 16px; }
+.status .alt.on { background: #fff; color: #4f46e5; } .alt.far { opacity: .55; }
+.status.calm .alt { background: var(--bg); } .status.calm .alt.on { background: var(--accent); color: #fff; }
+.leg-sum { padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,.14); font-size: 13px; }
+.leg-sum .ls-head { font-weight: 800; margin-bottom: 4px; }
+.leg-sum ol, .guide-steps ol { margin: 0; padding-left: 18px; }
+.leg-sum li { margin: 2px 0; }
+.guide-steps { padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,.14); font-size: 13px; }
+.guide-steps summary { font-weight: 800; cursor: pointer; margin-bottom: 6px; }
+.guide-steps li { margin: 6px 0; } .guide-steps li span { display: block; opacity: .9; font-weight: 500; line-height: 1.45; }
+.status.calm .leg-sum, .status.calm .guide-steps { background: var(--bg); }
+
+/* 상태 카드 접기·펼치기: 접히면 위 한 줄 + 큰 숫자 + 지금 할 일만 */
 .status.compact { cursor: pointer; padding-bottom: 12px; }
-.status.compact > :not(.st-label):not(.st-big):not(.quick-near):not(.st-unfold) { display: none; }
+.status.compact > :not(.st-label):not(.st-big):not(.st-do):not(.quick-near):not(.st-unfold) { display: none; }
 .status.compact .st-big { margin-top: 2px; }
 .status.folding { overflow: hidden; transition: height .3s cubic-bezier(.2,.8,.2,1); }
 .st-unfold { margin-top: 4px; font-size: 12px; font-weight: 700; opacity: .75; }

@@ -1,5 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
-import { PROXY_URL } from './config.js?v=202610190614';
+import { PROXY_URL } from './config.js?v=202610190706';
 
 const ROUTE_FIELDS = [
   'routes.duration',
@@ -17,6 +17,9 @@ const ROUTE_FIELDS = [
   'routes.legs.steps.transitDetails.stopDetails.departureStop.name',
   'routes.legs.steps.transitDetails.stopDetails.arrivalStop.name',
   'routes.legs.steps.transitDetails.stopDetails.departureTime',
+  'routes.legs.steps.transitDetails.stopDetails.departureStop.location',
+  'routes.legs.steps.transitDetails.stopDetails.arrivalStop.location',
+  'routes.travelAdvisory.transitFare',
 ].join(',');
 
 const VEHICLE = { SUBWAY: '🚇', METRO_RAIL: '🚇', HEAVY_RAIL: '🚆', COMMUTER_TRAIN: '🚆', HIGH_SPEED_TRAIN: '🚄', RAIL: '🚆', BUS: '🚌', INTERCITY_BUS: '🚌', TROLLEYBUS: '🚎', TRAM: '🚊', MONORAIL: '🚝', FERRY: '⛴️', CABLE_CAR: '🚡', GONDOLA_LIFT: '🚡', FUNICULAR: '🚞' };
@@ -81,8 +84,19 @@ export async function fetchRoutes(key, from, to, mode, departAt) {
     dist: r.distanceMeters || 0,
     poly: r.polyline?.encodedPolyline || '',
     segs: toSegments(r.legs?.[0]?.steps || []),
+    fare: fareOf(r.travelAdvisory?.transitFare),
   }));
 }
+
+// 대중교통 요금 {currencyCode, units, nanos} → "약 A$20" 같은 글자
+function fareOf(f) {
+  if (!f?.currencyCode) return null;
+  const v = (+f.units || 0) + (f.nanos || 0) / 1e9;
+  const sym = { AUD: 'A$', KRW: '₩', USD: '$', JPY: '¥', EUR: '€', NZD: 'NZ$', GBP: '£' }[f.currencyCode] || `${f.currencyCode} `;
+  return `${sym}${v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2).replace(/\.00$/, '')}`;
+}
+
+const locOf = s => (s?.location?.latLng ? { lat: s.location.latLng.latitude, lng: s.location.latLng.longitude } : null);
 
 // 걸음 단계는 하나로 묶고, 대중교통 단계는 노선 정보로 정리
 function toSegments(steps) {
@@ -98,6 +112,7 @@ function toSegments(steps) {
         headsign: t.headsign || '',
         from: t.stopDetails?.departureStop?.name || '',
         to: t.stopDetails?.arrivalStop?.name || '',
+        fromLoc: locOf(t.stopDetails?.departureStop), toLoc: locOf(t.stopDetails?.arrivalStop),
         stops: t.stopCount || 0,
         depTime: t.stopDetails?.departureTime || null,
         dur: Math.round(secs(s.staticDuration) / 60),

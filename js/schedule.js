@@ -30,7 +30,8 @@ export function estimateMin(distM, mode) {
 export function computeSchedule(items, legs, actual, buffer = 0) {
   const out = [];
   // 첫 장소에 적은 시간은 언제나 "출발 시각" (양식·수정 화면 모두 "출발 시간"으로 안내)
-  const firstIsDeparture = items[0]?.time != null && items.length > 1;
+  // 단, 비행기에서 내린 공항(landing)은 그 시간이 "착륙 시각"이고, 입국심사·짐 찾기 시간(landing 분)이 지난 뒤 출발
+  const firstIsDeparture = items[0]?.time != null && items.length > 1 && !items[0].landing;
   for (let i = 0; i < items.length; i++) {
     const it = items[i], a = actual[i] || {};
     const r = { travel: i > 0 ? (legs[i]?.dur ?? 0) : 0, late: 0, short: 0 };
@@ -49,8 +50,10 @@ export function computeSchedule(items, legs, actual, buffer = 0) {
       // 다음 장소 도착 시각이 정해져 있으면 늦어도 이때 출발
       dep = next.time - (legs[i + 1]?.dur ?? 0) - buffer;
       r.fixedByNext = true;
-    } else dep = (r.arrive ?? 9 * 60) + (it.stay || 0);
+    } else dep = (r.arrive ?? 9 * 60) + (it.landing || 0) + (it.stay || 0);
+    if (it.landing && r.arrive != null && a.dep == null) dep = Math.max(dep, r.arrive + it.landing); // 수속 끝나기 전엔 못 떠남
     if (r.arrive != null && a.dep == null && dep < r.arrive) dep = r.arrive;
+    r.proc = it.landing || 0;
     if (r.arrive != null) {
       r.stayEff = dep - r.arrive;
       r.short = Math.max(0, Math.round((it.stay || 0) - r.stayEff));

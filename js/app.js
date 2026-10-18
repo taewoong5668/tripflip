@@ -1,12 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel } from './parser.js?v=202610190614';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610190706';
+import { arrivalGuide } from './guides.js?v=202610190706';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610190614';
-import { createMap } from './map.js?v=202610190614';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610190614';
-import { PROXY_URL } from './config.js?v=202610190614';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610190614';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610190614';
+} from './schedule.js?v=202610190706';
+import { createMap } from './map.js?v=202610190706';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610190706';
+import { PROXY_URL } from './config.js?v=202610190706';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610190706';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610190706';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610190706';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,7 +53,21 @@ const PALETTE = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00897b
 const curDay = () => S.plan.days.find(d => d.date === S.selected) || null;
 const progOf = date => (S.progress[date] ||= {});
 const isLive = () => !!curDay() && (S.selected === todayStr() || S.settings.sim);
-const atMs = (date, min) => dayStart(date) + min * 60000;
+// 그 날의 현지 시간대: 그날 첫 장소 위치로 판단 (서울 일정은 서울 시각, 시드니 일정은 시드니 시각)
+const tzCache = new Map();
+function dayTz(date) {
+  const p = S.plan.days.find(x => x.date === date)?.items.find(hasPos);
+  if (!p) return null;
+  const k = `${p.lat},${p.lng}`;
+  if (!tzCache.has(k)) tzCache.set(k, tzOf(p));
+  return tzCache.get(k);
+}
+const dayStartTz = date => { const tz = dayTz(date); return tz ? zonedMidnight(date, tz) : dayStart(date); };
+const atMs = (date, min) => dayStartTz(date) + min * 60000;
+// 실제 시각(ms)을 그 날 현지 시각 "HH:MM"으로
+const clockAt = (ms, date) => { const tz = date && dayTz(date); return tz ? clockIn(ms, tz) : clockOf(ms); };
+// 그 날 현지 시각으로 지금이 몇 분인지
+const nowMinOf = date => Math.floor((Date.now() - dayStartTz(date)) / 60000);
 const hasPos = p => !!p && p.lat != null && p.lng != null;
 const legKey = (a, b, mode) => `${mode}|${a.lat.toFixed(4)},${a.lng.toFixed(4)}|${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
 const addDays = (date, n) => { const t = new Date(dayStart(date)); t.setDate(t.getDate() + n); return todayStr(t); };
@@ -74,12 +90,26 @@ function legInfo(a, b, mode) {
   return { dur: estimateMin(dist, mode), dist, est: true };
 }
 
+// 비행기에서 내린 공항인지: 공항 이름 + 바로 앞(같은 날 앞 줄, 또는 전날 마지막 줄)이 비행기
+// → 입국심사·짐 찾기 시간(분). 나라(시간대)가 바뀌면 국제선(기본 75분), 아니면 국내선(30분)
+const AIRPORT_RE = /공항|airport|국제선|international terminal|terminal\s*\d/i;
+function landingOf(d, i) {
+  const it = d.items[i];
+  if (!it || !AIRPORT_RE.test(it.place)) return 0;
+  let prev = d.items[i - 1];
+  if (!prev && i === 0) prev = S.plan.days.filter(x => x.date < d.date && x.items.length).at(-1)?.items.at(-1);
+  if (!prev || !isFlight(prev.place)) return 0;
+  const intl = hasPos(prev) && hasPos(it) && tzOf(prev) !== tzOf(it);
+  return intl ? (S.settings.landing || 75) : 30;
+}
+
 function dayPlan(d) {
   const legs = d.items.map((it, i) => (i ? legInfo(d.items[i - 1], it, it.mode) : null));
-  const prog = S.progress[d.date] || {}, base = dayStart(d.date);
+  const prog = S.progress[d.date] || {}, base = dayStartTz(d.date);
   const toMin = ts => (ts == null ? null : (ts - base) / 60000);
   const actual = d.items.map(it => ({ arr: toMin(prog[it.id]?.arr), dep: toMin(prog[it.id]?.dep) }));
-  return { legs, sched: computeSchedule(d.items, legs, actual, S.settings.buffer) };
+  const items = d.items.map((it, i) => { const l = landingOf(d, i); return l ? { ...it, landing: l } : it; });
+  return { legs, sched: computeSchedule(items, legs, actual, S.settings.buffer) };
 }
 
 function recompute() {
@@ -169,7 +199,8 @@ function renderHeader() {
   if (!date) { $('#dayTitle').textContent = ''; return; }
   const [, m, dd] = date.split('-').map(Number);
   const w = '일월화수목금토'[new Date(dayStart(date)).getDay()];
-  $('#dayTitle').textContent = `${m}월 ${dd}일 ${w}요일${date === todayStr() ? ' · 오늘' : ''}`;
+  const tz = dayTz(date), local = tz && tz !== deviceTz() ? ` · ${tzLabel(tz)}` : '';
+  $('#dayTitle').textContent = `${m}월 ${dd}일 ${w}요일${date === todayStr() ? ' · 오늘' : ''}${local}`;
 }
 
 function renderTabs() {
@@ -213,7 +244,7 @@ function moveTimes(d, i) {
   return { dep, elapsed: Math.max(0, (Date.now() - dep) / 60000) };
 }
 
-function moveVisual(d, i) {
+function moveVisual(d, i, step = liveStep(d, i)) {
   const prev = d.items[i - 1], it = d.items[i];
   if (!prev || !hasPos(prev) || !hasPos(it)) return '';
   const leg = S.cur.legs[i] || {}, m = MODES[it.mode];
@@ -230,7 +261,7 @@ function moveVisual(d, i) {
       <div class="tp-bar"><div class="tp-fill" style="width:${pct}%"></div><span class="tp-dot start"></span><span class="tp-dot end"></span><span class="tp-me" style="left:${pct}%">${m.icon}</span></div>
       <div class="tp-meta">${pct}% 왔어요${total ? ` · 전체 ${fmtDist(total)}` : ''}</div>
     </div>`;
-  return bar + miniMapSvg(d, i) + transitSteps(leg, it, elapsed);
+  return bar + miniMapSvg(d, i) + transitSteps(leg, it, step);
 }
 
 // 지도 화면에 가지 않아도 보이는 작은 동선 그림: 이전 장소(■) → 내 위치(●) → 다음 장소(◎)
@@ -260,21 +291,88 @@ function miniMapSvg(d, i) {
     </svg><span class="mm-hint">누르면 큰 지도</span></button>`;
 }
 
-// 대중교통: 🚶 3분 → 🚇 T1 4정거장 → 🚶 2분, 지금 단계 강조 (출발 뒤 지난 시간 기준)
-function transitSteps(leg, it, elapsed) {
+// 대중교통: 🚶 3분 › 🚇 T8 3정거장 › 🚶 6분, 지금 단계 강조 (지금 단계는 liveStep이 GPS 또는 시간으로 판단)
+function transitSteps(leg, it, step) {
   if (it.mode !== 'TRANSIT' || !leg.segs?.length) return '';
-  let acc = 0, cur = leg.segs.length - 1;
-  for (let j = 0; j < leg.segs.length; j++) { acc += leg.segs[j].dur || 0; if (elapsed < acc) { cur = j; break; } }
+  const cur = step?.idx ?? 0;
   const chip = (s, j) => {
     const txt = s.type === 'TRANSIT'
       ? `${s.icon} ${esc(s.line || '')}${s.stops ? ` ${s.stops}정거장` : ''}`
       : `${s.type === 'WALK' ? '🚶' : '🚗'} ${fmtDur(s.dur)}`;
-    const tip = s.type === 'TRANSIT' && s.from ? ` title="${esc(s.from)} → ${esc(s.to)}"` : '';
-    return `<span class="ts-step ${j < cur ? 'done' : j === cur ? 'now' : ''}"${tip}>${txt}</span>`;
+    return `<span class="ts-step ${j < cur ? 'done' : j === cur ? 'now' : ''}">${txt}</span>`;
   };
-  const now = leg.segs[cur];
-  const where = now.type === 'TRANSIT' ? `${esc(now.from)} → ${esc(now.to)} (${esc(now.headsign || '')})` : '';
-  return `<div class="transit-steps">${leg.segs.map(chip).join('<span class="ts-arrow">›</span>')}</div>${where ? `<div class="st-row small">지금: ${where}</div>` : ''}`;
+  return `<div class="transit-steps">${leg.segs.map(chip).join('<span class="ts-arrow">›</span>')}</div>`;
+}
+
+// 지금 이동의 어느 단계인지 + "지금 할 일" 한 문장
+// GPS가 되면 내릴 역까지 거리로, 안 되면 출발 뒤 지난 시간으로 판단. 내릴 역이 가까워지면 진동·알림 한 번
+const stepState = {};
+function liveStep(d, i) {
+  const it = d.items[i], leg = S.cur.legs[i] || {}, segs = leg.segs || [];
+  const gps = S.pos && !S.pos.stale && Date.now() - S.pos.ts < 120000 ? S.pos : null;
+  if (!segs.length || it.mode !== 'TRANSIT') {
+    const m = MODES[it.mode];
+    return { idx: 0, text: `${m.icon} <b>${esc(it.place)}</b>까지 ${gps && hasPos(it) ? fmtDist(haversine(gps, it)) : fmtDur(leg.dur)}` };
+  }
+  const st = (stepState[it.id] ||= { done: -1, alerted: {} });
+  let idx;
+  if (gps) {
+    // 이미 지나간 단계 표시: 걷기 → 다음 정류장 근처(200m)에 오면 끝, 타는 중 → 내릴 역 근처(250m)면 끝
+    for (let j = st.done + 1; j < segs.length; j++) {
+      const sg = segs[j], nx = segs[j + 1];
+      if (sg.type === 'TRANSIT' && sg.toLoc && haversine(gps, sg.toLoc) < 250) { st.done = j; continue; }
+      if (sg.type !== 'TRANSIT' && nx?.type === 'TRANSIT' && nx.fromLoc) {
+        const dFrom = haversine(gps, nx.fromLoc), span = nx.toLoc ? haversine(nx.fromLoc, nx.toLoc) : 0;
+        const onBoard = span && dFrom > 300 && haversine(gps, nx.toLoc) < span * 0.9; // 앱을 늦게 켰는데 이미 타고 있는 경우
+        if (dFrom < 200 || onBoard) { st.done = j; continue; }
+      }
+      break;
+    }
+    idx = Math.min(st.done + 1, segs.length - 1);
+  } else {
+    const { elapsed } = moveTimes(d, i);
+    let acc = 0; idx = segs.length - 1;
+    for (let j = 0; j < segs.length; j++) { acc += segs[j].dur || 0; if (elapsed < acc) { idx = j; break; } }
+  }
+  const sg = segs[idx], nx = segs[idx + 1];
+  let text;
+  if (sg.type === 'TRANSIT') {
+    let left = sg.stops || 0;
+    if (gps && sg.fromLoc && sg.toLoc) {
+      const span = haversine(sg.fromLoc, sg.toLoc) || 1, rest = haversine(gps, sg.toLoc);
+      left = Math.max(0, Math.min(sg.stops || 0, Math.round((sg.stops || 0) * rest / span)));
+      // 내릴 역이 가까워짐 → 한 번만 진동 + 알림
+      if ((left <= 1 || rest < 1500) && !st.alerted[idx]) {
+        st.alerted[idx] = true;
+        beep();
+        toast(`🔔 곧 ${sg.to}에서 내리세요`, 8000);
+        webNotify({ title: `🔔 곧 ${sg.to}에서 내리세요`, body: `${sg.line || ''} · ${it.place} 가는 길` });
+      }
+    }
+    text = `${sg.icon} ${esc(sg.line || '')}${sg.headsign ? ` <span class="muted-in">${esc(sg.headsign)} 방면</span>` : ''} · <b>${esc(sg.to)}</b>에서 내리세요${left ? ` · ${left}정거장 남음` : ' · 이번 역!'}`;
+  } else if (nx?.type === 'TRANSIT') {
+    text = `🚶 <b>${esc(nx.from)}</b>까지 걸어가서 ${nx.icon} ${esc(nx.line || '')} 타기 · 약 ${fmtDur(sg.dur)}`;
+  } else {
+    text = `🚶 <b>${esc(it.place)}</b>까지 걸어가세요 · 약 ${fmtDur(sg.dur)}`;
+  }
+  return { idx, text };
+}
+
+// 다음 이동을 한 줄로: "🚇 T8 → Town Hall 하차 → 🚶 6분 · 약 40분" (저장된 경로라 인터넷 없이도 보임)
+function legSummary(d, j) {
+  const it = d.items[j], leg = S.cur.legs[j];
+  if (!it || !leg?.segs?.length || it.mode !== 'TRANSIT') return '';
+  const parts = leg.segs.map(s => s.type === 'TRANSIT'
+    ? `${s.icon} ${esc(s.line || '')} <b>${esc(s.from)}</b> 승차 → <b>${esc(s.to)}</b> 하차${s.stops ? ` (${s.stops}정거장)` : ''}`
+    : `🚶 ${fmtDur(s.dur)}`);
+  return `<div class="leg-sum"><div class="ls-head">${esc(it.place)}까지 · 약 ${fmtDur(leg.dur)}${leg.fare ? ` · ${leg.fare}` : ''}</div><ol>${parts.map(p => `<li>${p}</li>`).join('')}</ol></div>`;
+}
+
+// 공항 입국 절차 (펼치면 단계별)
+function landingGuide(d, i) {
+  const g = arrivalGuide(dayTz(d.date));
+  return `<details class="guide-steps"><summary>📋 입국 절차 ${g.steps.length}단계 보기${g.specific ? '' : ' (공통)'}</summary><ol>${g.steps.map(s => `<li><b>${s.icon} ${esc(s.title)}</b><span>${esc(s.text)}</span></li>`).join('')}</ol>
+    <div class="muted-in small">규정은 바뀔 수 있어요. 공항 안내 표지를 먼저 따르세요.</div></details>`;
 }
 
 // 카드 오른쪽 위 작은 버튼: 일정과 상관없이 지금 내 위치 근처 편의점·약국·병원
@@ -307,48 +405,53 @@ function renderStatus() {
   }
 
   const ph = phase(d);
+  // 카드 구성은 어느 단계든 같게: 위 한 줄 · 장소 · 큰 숫자 · "지금 할 일" 한 줄 · (펼치면) 자세히 · 버튼
+  const big = (label, ms) => `<div class="st-big ${urgency(ms - now)}"><small>${label}</small><span data-cd="${ms}">${fmtCountdown(ms - now)}</span></div>`;
+  const todo = t => `<div class="st-do">${t}</div>`;
+  const more = h => (h ? `<div class="st-more">${h}</div>` : '');
+  const offline = navigator.onLine === false ? '<span class="st-off">📴 오프라인 · 저장된 안내</span>' : '';
   let html;
   if (ph.type === 'done') {
     el.classList.add('calm');
     const next = S.plan.days.find(x => x.date > d.date && x.items.length);
     html = `<div class="st-label">오늘 일정</div><div class="st-title">🎉 오늘 일정을 모두 마쳤어요</div>
       ${next ? `<div class="st-actions"><button class="primary" data-act="goDay" data-date="${next.date}">${dayLabel(next.date)} 일정 보기</button></div>` : ''}`;
-  } else if (ph.type === 'before' || (ph.type === 'stay' && ph.i === 0)) {
-    const dep = atMs(d.date, sched[0].depart);
-    html = `<div class="st-label">${ph.type === 'stay' ? '출발지에 있어요' : '일정 시작 전'} · ${esc(items[0].place)}</div>
-      <div class="st-big ${urgency(dep - now)}"><small>출발까지</small><span data-cd="${dep}">${fmtCountdown(dep - now)}</span></div>
-      <div class="st-row">${fmtClock(sched[0].depart)}에 출발하세요</div>
-      ${items[1] ? nextLine(d, 1) : ''}
-      <div class="st-actions">${items[1] ? legButtons(1) : ''}<button data-act="depart" data-i="0">출발 처리</button>${wakeButton(d)}</div>`;
-  } else if (ph.type === 'stay') {
-    const i = ph.i, it = items[i], s = sched[i], next = items[i + 1];
-    const arr = progOf(d.date)[it.id]?.arr ?? atMs(d.date, s.arrive);
-    const dep = atMs(d.date, s.depart);
-    html = `<div class="st-label">지금 여기 · ${labelOf(d, i)}번</div>
-      <div class="st-title">${esc(it.place)}</div>
-      <div class="st-row">${clockOf(arr)} 도착 ${s.late ? `<span class="badge">${s.late}분 늦음</span>` : ''} · 머문 시간 <span data-el="${arr}">${fmtDur((now - arr) / 60000)}</span></div>
-      ${next ? `<div class="st-big ${urgency(dep - now)}"><small>출발까지</small><span data-cd="${dep}">${fmtCountdown(dep - now)}</span></div>
-      <div class="st-row">${fmtClock(s.depart)} 출발 ${s.short ? `<span class="badge">체류 ${s.short}분 부족</span>` : ''}</div>${nextLine(d, i + 1)}`
-        : '<div class="st-row">마지막 장소예요. 오늘 일정 끝!</div>'}
-      <div class="st-actions">${next ? legButtons(i + 1) + `<button data-act="depart" data-i="${i}">출발 처리</button>` : ''}</div>`;
-  } else {
+  } else if (ph.type === 'move') {
     const i = ph.i, it = items[i], s = sched[i], m = MODES[it.mode];
-    // 내 위치가 아직 없으면 계획 도착 시각까지 남은 시간을 크게 (접힌 카드에도 보이게)
-    const arrMs = atMs(d.date, s.arrive);
-    let live = `<div class="st-big ${urgency(arrMs - now)}"><small>도착 예정까지</small><span data-cd="${arrMs}">${fmtCountdown(arrMs - now)}</span></div>
-      <div class="st-row">${S.pos ? '이 장소는 위치 정보가 없어요' : '내 위치 확인 중…'}</div>`;
-    if (S.pos && hasPos(it)) {
+    const arrMs = atMs(d.date, s.arrive), step = liveStep(d, i);
+    let num = big('도착 예정까지', arrMs), sub = `계획 ${fmtClock(s.arrive)} 도착${it.time != null ? ' (예약)' : ''}`;
+    if (S.pos && !S.pos.stale && hasPos(it)) {
       const { dist, est, eta } = liveEta(it);
-      const diff = Math.round((eta - atMs(d.date, s.arrive)) / 60000);
-      const badge = diff > 2 ? `<span class="badge">${diff}분 늦음</span>` : diff < -2 ? `<span class="badge">${-diff}분 여유</span>` : '<span class="badge">제시간</span>';
-      live = `<div class="st-big"><small>남은 거리</small>${fmtDist(dist)}</div>
-        <div class="st-row">약 ${fmtDur(est)} · ${clockOf(eta)} 도착 예상 ${badge}</div>`;
+      const diff = Math.round((eta - arrMs) / 60000);
+      num = `<div class="st-big"><small>남은 거리</small>${fmtDist(dist)}</div>`;
+      sub = `약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착 예상 · ${diff > 2 ? `<b class="bad">${diff}분 늦음</b>` : diff < -2 ? `${-diff}분 여유` : '제시간'}`;
     }
-    html = `<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label}</div>
-      <div class="st-title">${esc(it.place)}</div>${live}
-      <div class="st-row">계획 ${fmtClock(s.arrive)} 도착${it.time != null ? ' (예약)' : ''}</div>
-      ${moveVisual(d, i)}
-      <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도로 길 보기</button><button data-act="nav" data-i="${i}">길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
+    html = `<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
+      <div class="st-title">${esc(it.place)}</div>${num}${todo(step.text)}
+      ${more(`<div class="st-row small">${sub}</div>${moveVisual(d, i, step)}`)}
+      <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도</button><button data-act="nav" data-i="${i}">길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
+  } else {
+    // 출발 전(첫 장소) · 머무는 중: 다음 장소로 떠날 때까지
+    const i = ph.type === 'before' ? 0 : ph.i, it = items[i], s = sched[i], next = items[i + 1];
+    const dep = atMs(d.date, s.depart);
+    const lead = ph.type === 'before' ? `일정 시작 전 · ${esc(it.place)}` : `지금 여기 · ${labelOf(d, i)}번`;
+    if (!next) {
+      html = `<div class="st-label">${lead}</div><div class="st-title">${esc(it.place)}</div><div class="st-row">마지막 장소예요. 오늘 일정 끝!</div>`;
+    } else if (s.proc && ph.type === 'stay' && now < atMs(d.date, s.arrive + s.proc)) {
+      // ✈️ 비행기에서 내린 공항: 입국 절차 안내 (앱 안에 있어서 인터넷 없이도 보임)
+      html = `<div class="st-label">✈️ 도착 · 입국 절차 중 ${offline}</div>
+        <div class="st-title">${esc(it.place)}</div>${big('출발 예정까지', dep)}
+        ${todo(`🛂 입국심사 → 🧳 짐 찾기 → 🛃 세관 · 약 ${fmtDur(s.proc)}`)}
+        ${more(`${legSummary(d, i + 1)}${altsHtml(d, i + 1)}${landingGuide(d, i)}`)}
+        <div class="st-actions"><button class="primary" data-act="depart" data-i="${i}">🚪 나왔어요</button>${legButtons(i + 1).replace('class="primary"', '')}</div>`;
+    } else {
+      const lg = S.cur.legs[i + 1] || {}, nm = MODES[next.mode];
+      html = `<div class="st-label">${lead} ${offline}</div>
+        <div class="st-title">${esc(ph.type === 'before' ? next.place : it.place)}</div>${big('출발까지', dep)}
+        ${todo(`${fmtClock(s.depart)}에 출발 → ${esc(next.place)} · ${nm.icon} ${fmtDur(lg.dur)}${lg.est ? '(추정)' : ''}`)}
+        ${more(`${legSummary(d, i + 1)}${altsHtml(d, i + 1)}`)}
+        <div class="st-actions">${legButtons(i + 1)}<button data-act="depart" data-i="${i}">출발 처리</button>${ph.type === 'before' ? wakeButton(d) : ''}</div>`;
+    }
   }
   setStatusHtml(el, quickNear() + html);
 }
@@ -456,7 +559,11 @@ function renderTimeline() {
   const states = d.items.map((_, i) => itemState(d, i, ph));
   // 식사 시간인데 식당·카페 일정이 없는 자리 → 점선 "식사 추가" 칸 (지난 날은 생략)
   const gaps = {};
-  if (d.date >= todayStr()) for (const g of [...mealGaps(d), ...extraGaps(d)]) (gaps[g.k] ||= []).push(g);
+  // 추천 칸은 꼭 필요할 때만: 비행기·공항 앞뒤는 빼고, 오늘 이미 지난 시간대도 뺌 (화면이 산만하지 않게)
+  const nowM = d.date === todayStr() ? nowMinOf(d.date) : -1;
+  const busy = k => [d.items[k], d.items[k + 1]].some(x => x && (isFlight(x.place) || AIRPORT_RE.test(x.place)));
+  const passed = g => nowM >= 0 && (g.we != null ? nowM > g.we : nowM > (S.cur.sched[g.k]?.depart ?? 1e9));
+  if (d.date >= todayStr()) for (const g of [...mealGaps(d), ...extraGaps(d)]) if (!busy(g.k) && !passed(g)) (gaps[g.k] ||= []).push(g);
   const rows = d.items.map((it, i) => {
     const s = sched[i], state = states[i], done = state === 'done' || state === 'skip', color = placeColor(i, state);
     let leg = '';
@@ -469,8 +576,9 @@ function renderTimeline() {
     const tag = state === 'here' ? '<span class="row-tag now">지금</span>' : state === 'next' ? '<span class="row-tag next">다음</span>'
       : done ? `<span class="row-tag">${state === 'skip' ? '건너뜀' : '완료'}</span>` : '';
     // 하루의 첫 장소는 머물던 곳이자 출발지: "00:00에 떠나기"만
-    const first = i === 0 && n > 1;
+    const first = i === 0 && n > 1 && !s.proc;
     const sub = first ? `${fmtClock(s.depart)}에 떠나기`
+      : s.proc ? `✈️ 착륙 · 🛂 입국 절차 약 ${fmtDur(s.proc)} · ${fmtClock(s.depart)} 출발`
       : [isArr ? '도착' : '출발', free ? `${fmtDur(free)}의 여유` : '', i < n - 1 && isArr ? `${fmtClock(s.depart)} 출발` : ''].filter(Boolean).join(' · ');
     return `${leg}<div class="row ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
       <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
@@ -572,12 +680,12 @@ function renderDetail() {
       ${stateTag ? `<span class="dt-state ${state}">${stateTag}</span>` : ''}
       ${it.address ? `<div class="dt-addr">${esc(it.address)}</div>` : ''}
     </div>
-    ${i === 0 && n > 1
-      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}에 떠나기</b>${p.dep ? `<em>실제 ${clockOf(p.dep)} 출발</em>` : ''}</div></div>`
+    ${i === 0 && n > 1 && !s.proc
+      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}에 떠나기</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)} 출발</em>` : ''}</div></div>`
       : `<div class="dt-times">
-      <div><span>도착</span><b>${s.arrive != null ? fmtClock(s.arrive) : '—'}</b>${p.arr ? `<em>실제 ${clockOf(p.arr)}</em>` : ''}</div>
+      <div><span>도착</span><b>${s.arrive != null ? fmtClock(s.arrive) : '—'}</b>${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)}</em>` : ''}</div>
       <div><span>여유</span><b>${free ? fmtDur(free) : '—'}</b></div>
-      <div><span>출발</span><b>${i < n - 1 ? fmtClock(s.depart) : '—'}</b>${p.dep ? `<em>실제 ${clockOf(p.dep)}</em>` : ''}</div>
+      <div><span>출발</span><b>${i < n - 1 ? fmtClock(s.depart) : '—'}</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)}</em>` : ''}</div>
     </div>`}
     ${warns.map(w => `<div class="dt-warn">⚠ ${esc(w)}</div>`).join('')}
     ${hasPos(it) ? '' : `<button class="dt-warn fix" data-act="fixPlace" data-i="${i}">⚠ 위치를 찾지 못했어요 · <u>눌러서 지도에서 찾기</u></button>`}
@@ -818,7 +926,7 @@ function renderMapStatus() {
     const it = d.items[ph.i];
     if (S.pos && hasPos(it)) {
       const { dist, est, eta } = liveEta(it);
-      html = `<div class="muted small">이동 중 · 파란 선을 따라가세요</div><b>${esc(it.place)}</b> · ${fmtDist(dist)} · 약 ${fmtDur(est)} · ${clockOf(eta)} 도착`;
+      html = `<div class="muted small">이동 중 · 파란 선을 따라가세요</div><b>${esc(it.place)}</b> · ${fmtDist(dist)} · 약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착`;
     } else html = `<div class="muted small">다음 목적지</div><b>${esc(it.place)}</b>`;
   } else if (ph?.type === 'stay' || ph?.type === 'before') {
     const i = ph.i, next = d.items[i + 1];
@@ -1015,7 +1123,7 @@ function detect() {
     const it = d.items[i];
     if (hasPos(it) && haversine(S.pos, it) <= r) {
       markArrive(d, i);
-      toast(`📍 ${it.place} 도착 (${clockOf(Date.now())})`);
+      toast(`📍 ${it.place} 도착 (${clockAt(Date.now(), d.date)})`);
       return;
     }
   }
@@ -1023,7 +1131,7 @@ function detect() {
     const it = d.items[here];
     if (hasPos(it) && haversine(S.pos, it) > Math.max(r * 1.5, r + 50)) {
       markDepart(d, here);
-      toast(`🚶 ${it.place} 출발 (${clockOf(Date.now())})`);
+      toast(`🚶 ${it.place} 출발 (${clockAt(Date.now(), d.date)})`);
     }
   }
 }
@@ -1061,6 +1169,8 @@ function onPos(p) {
   S.map?.setMe(p);
   if (S.follow) S.map?.panTo(p);
   if (isLive()) detect();
+  // 이동 중 안내(내릴 역 등)를 위치가 바뀔 때마다 갱신 (5초에 한 번까지)
+  if (isLive() && Date.now() - (onPos.shown || 0) > 5000) { onPos.shown = Date.now(); renderStatus(); }
   updateDistances();
   updateLiveRoute(false);
   if (topLayer() === 'map') renderMapStatus();
@@ -1132,7 +1242,7 @@ async function openRouteSheet(i) {
   selectRoute(rec || results[0]?.mode, 0);
 }
 
-const pickLeg = r => ({ dur: r.dur, dist: r.dist, poly: r.poly, segs: r.segs });
+const pickLeg = r => ({ dur: r.dur, dist: r.dist, poly: r.poly, segs: r.segs, fare: r.fare || null, v: 2 });
 
 function selectRoute(mode, idx) {
   const sh = S.sheet;
@@ -1149,7 +1259,7 @@ function selectRoute(mode, idx) {
 
 function segHtml(s) {
   if (s.type === 'TRANSIT') {
-    const dep = s.depTime ? ` · ${clockOf(Date.parse(s.depTime))} 출발` : '';
+    const dep = s.depTime ? ` · ${clockAt(Date.parse(s.depTime), S.selected)} 출발` : '';
     return `<li><span class="seg-icon">${s.icon}</span><div><b>${esc(s.line)}</b>${s.headsign ? ` ${esc(s.headsign)} 방면` : ''}<br>
       <span class="muted">${esc(s.from)} → ${esc(s.to)} · ${s.stops}정거장 · ${fmtDur(s.dur)}${dep}</span></div></li>`;
   }
@@ -1581,7 +1691,6 @@ function prevHotel(date) {
 }
 
 const roundUp10 = min => Math.ceil(min / 10) * 10;
-const nowMin = () => { const t = new Date(); return t.getHours() * 60 + t.getMinutes(); };
 
 function openEditor(index, id) {
   const d = curDay(), date = S.selected;
@@ -1597,7 +1706,7 @@ function openEditor(index, id) {
     sh.origin = null; // 비워 두면 현재 위치에서 출발
     sh.oQuery = ''; sh.oResults = null;
     sh.timeMode = date === todayStr() ? 'now' : 'dep'; // 오늘이면 기본은 "즉시 떠나기"
-    sh.tval = date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 50) : 9 * 60;
+    sh.tval = date === todayStr() ? Math.min(roundUp10(nowMinOf(date) + 10), 23 * 60 + 50) : 9 * 60;
   }
   S.sheet = sh;
   S.routeView = null;
@@ -1684,7 +1793,7 @@ function tpAct(name, el) {
   if (name === 'tpOpen') {
     const id = el.dataset.id;
     if (S.tp?.id === id) { S.tp = null; renderSheet(); return; }
-    const cur = getTime(id) ?? (S.sheet.date === todayStr() ? Math.min(roundUp10(nowMin() + 10), 23 * 60 + 55) : 9 * 60);
+    const cur = getTime(id) ?? (S.sheet.date === todayStr() ? Math.min(roundUp10(nowMinOf(S.sheet.date) + 10), 23 * 60 + 55) : 9 * 60);
     const h24 = Math.floor(cur / 60) % 24;
     S.tp = { id, ampm: h24 < 12 ? 'am' : 'pm', h: h24 % 12 === 0 ? 12 : h24 % 12, m: Math.round((cur % 60) / 5) * 5 % 60 };
   } else if (name === 'tpClear') {
@@ -1750,7 +1859,7 @@ function editHtml(sh) {
         <button class="${sh.timeMode === 'arr' ? 'on' : ''}" data-act="trMode" data-m="arr">도착 시간 정하기</button>
       </div>
       ${sh.timeMode === 'now'
-        ? `<span class="muted small">지금 바로(${fmtClock(nowMin())}) 출발해요. 도착 시간은 자동 계산돼요.</span>`
+        ? `<span class="muted small">지금 바로(${fmtClock(nowMinOf(sh.date))}) 출발해요. 도착 시간은 자동 계산돼요.</span>`
         : `${timeField('trTime', sh.tval)}
       <span class="muted small">${sh.timeMode === 'dep' ? '이 시간에 출발지에서 떠나요. 도착 시간은 자동 계산돼요.' : '이 시간까지 도착하도록 출발 시간을 거꾸로 계산해요 (예약 등).'}</span>`}
     </div>
@@ -1854,7 +1963,7 @@ function edSave() {
     // 출발지 + 도착지를 한 번에 만듦
     const o = originOf(sh);
     const start = { id: newId(), place: o.place, address: o.address || '', lat: o.lat, lng: o.lng, time: null, stay: 0, mode: 'TRANSIT', memo: '', notes: [] };
-    if (sh.timeMode === 'now') { start.time = nowMin(); item.time = null; }        // 지금 바로 출발
+    if (sh.timeMode === 'now') { start.time = nowMinOf(sh.date); item.time = null; }        // 지금 바로 출발
     else if (sh.timeMode === 'dep') { start.time = sh.tval; item.time = null; }  // 정한 시간에 출발
     else { item.time = sh.tval; }                                                // 정한 시간까지 도착
     d.items.splice(0, 0, start, item);
@@ -1993,7 +2102,7 @@ function buildAlarms() {
       const dep = atMs(d.date, sched[i].depart), m = MODES[next.mode];
       const body = `${it.place} → ${next.place} (${m.icon} ${m.label} ${fmtDur(legs[i + 1].dur)})`;
       const id = dn * 100 + i * 2;
-      if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockOf(dep)})`, body });
+      if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockAt(dep, d.date)})`, body });
       list.push({ id: id + 1, at: dep, title: '🚶 지금 출발하세요', body });
     });
     // 모닝콜 (번호 97~99: 장소 알람과 겹치지 않게)
@@ -2237,27 +2346,89 @@ async function geocodeMissing() {
 }
 
 let prefetchRun = 0;
+// 인터넷이 될 때 오늘·앞으로의 모든 날 경로를 미리 받아 둠 → 인터넷이 끊겨도 저장된 길·환승·내릴 역 안내
+// (예전에 받은 대중교통 경로에 내릴 역 위치가 없으면 한 번 다시 받음)
 async function prefetchLegs() {
-  const key = gkey(), d = curDay();
-  if (!d) return;
-  const run = ++prefetchRun;
-  for (let i = 1; i < d.items.length; i++) {
-    const a = d.items[i - 1], b = d.items[i];
-    if (!hasPos(a) || !hasPos(b) || S.legCache[legKey(a, b, b.mode)]) continue;
-    if (!key && b.mode === 'TRANSIT') continue; // 대중교통은 구글 키가 있어야
-    try {
-      const departAt = atMs(d.date, S.cur.sched[i - 1].depart);
-      const routes = await routeFor(key, a, b, b.mode, departAt);
-      S.legCache[legKey(a, b, b.mode)] = routes.length ? pickLeg(routes[0]) : { fail: true };
-    } catch (e) {
-      toast(`경로 계산 실패: ${e.message}`, 5000);
-      return;
+  const key = gkey(), run = ++prefetchRun, t = todayStr();
+  if (navigator.onLine === false) return;
+  const days = [...new Set([curDay(), ...S.plan.days.filter(x => x.date >= t)].filter(Boolean))];
+  let errors = 0;
+  for (const d of days) {
+    const { sched } = dayPlan(d);
+    for (let i = 1; i < d.items.length; i++) {
+      const a = d.items[i - 1], b = d.items[i];
+      if (!hasPos(a) || !hasPos(b)) continue;
+      if (!key && b.mode === 'TRANSIT') continue; // 대중교통은 구글(키 또는 초대 코드)이 있어야
+      const c = S.legCache[legKey(a, b, b.mode)];
+      const departAt = atMs(d.date, sched[i - 1].depart);
+      if (!c || (b.mode === 'TRANSIT' && !c.fail && c.v !== 2)) {
+        try {
+          const routes = await routeFor(key, a, b, b.mode, departAt);
+          S.legCache[legKey(a, b, b.mode)] = routes.length ? pickLeg(routes[0]) : { fail: true };
+          saveLegs();
+        } catch (e) {
+          if (++errors >= 3) { toast(`경로를 미리 받지 못했어요: ${e.message}`, 5000); return; }
+          continue;
+        }
+        if (run !== prefetchRun) return;
+        if (d === curDay()) { recompute(); renderAll(false); }
+      }
+      // 비행기에서 내린 공항에서 나가는 길은 지하철·택시·도보를 미리 비교해 둠 (인터넷 없을 때 대비)
+      if (key && landingOf(d, i - 1)) await ensureAlts(a, b, departAt);
     }
-    saveLegs();
-    if (run !== prefetchRun || curDay() !== d) return;
-    recompute(); renderAll(false);
   }
   scheduleAlarms();
+}
+
+// ---------- 이동 방법 비교 (지하철·택시·도보) ----------
+const altKey = (a, b) => `ALT|${legKey(a, b, '')}`;
+const altBusy = new Set();
+async function ensureAlts(a, b, departAt) {
+  const k = altKey(a, b), key = gkey();
+  if (S.legCache[k] || altBusy.has(k) || !key || navigator.onLine === false) return S.legCache[k];
+  altBusy.add(k);
+  const out = {};
+  for (const mode of ['TRANSIT', 'DRIVE', 'WALK']) {
+    try {
+      const [r] = await routeFor(key, a, b, mode, departAt);
+      if (r) out[mode] = { dur: r.dur, dist: r.dist, fare: r.fare || null, segs: mode === 'TRANSIT' ? r.segs : undefined };
+    } catch { /* 그 방법은 건너뜀 */ }
+  }
+  altBusy.delete(k);
+  if (Object.keys(out).length) { S.legCache[k] = out; saveLegs(); renderStatus(); }
+  return out;
+}
+
+// 택시 요금 대략 (도시별 기본요금 + km당). 모르는 나라는 표시 안 함
+function taxiFare(distM, tz, fromAirport) {
+  const km = distM / 1000;
+  if (tz?.startsWith('Australia/')) {
+    const v = 4.8 + 2.5 * km + (fromAirport ? 5.5 : 0); // 시드니 기준 대략 (주말·밤·톨게이트 별도)
+    return `약 A$${Math.round(v * 0.9 / 5) * 5}~${Math.round(v * 1.2 / 5) * 5}`;
+  }
+  if (tz === 'Asia/Seoul') return `약 ₩${(Math.round((4800 + Math.max(0, km - 1.6) * 760) / 1000) * 1000).toLocaleString()}`;
+  return '';
+}
+
+// "🚇 45분 · 🚕 25분 약 A$45~60 · 🚶 2시간 30분" 비교 줄 (계획한 방법 강조)
+function altsHtml(d, i) {
+  const a = d.items[i - 1], b = d.items[i];
+  if (!a || !hasPos(a) || !hasPos(b)) return '';
+  const alt = S.legCache[altKey(a, b)];
+  if (!alt) {
+    if (gkey() && navigator.onLine !== false) ensureAlts(a, b, atMs(d.date, S.cur.sched[i - 1].depart));
+    return '';
+  }
+  const tz = dayTz(d.date), fromAirport = !!landingOf(d, i - 1);
+  const row = (mode, icon, label) => {
+    const r = alt[mode];
+    if (!r) return '';
+    const cost = mode === 'TRANSIT' ? (r.fare || '') : mode === 'DRIVE' ? taxiFare(r.dist, tz, fromAirport) : '';
+    const tooFar = mode === 'WALK' && r.dur > 60;
+    return `<button class="alt ${b.mode === mode ? 'on' : ''} ${tooFar ? 'far' : ''}" data-act="route" data-i="${i}">
+      <span class="alt-ic">${icon}</span><b>${fmtDur(r.dur)}</b><small>${label}${cost ? ` · ${cost}` : ''}</small></button>`;
+  };
+  return `<div class="alts">${row('TRANSIT', '🚇', '대중교통')}${row('DRIVE', '🚕', '택시')}${row('WALK', '🚶', '도보')}</div>`;
 }
 
 // ---------- 버튼 처리 ----------
@@ -2702,6 +2873,11 @@ async function init() {
   onBackButton(goBack);
   setupWebBack();
   setupStatusFold();
+  // 웹앱: 인터넷 없이도 열리게 화면 파일 저장 (안드로이드 앱은 파일이 이미 들어 있음)
+  if (!isNative && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // 인터넷이 다시 되면 못 받은 경로를 이어서 받음
+  addEventListener('online', () => { toast('인터넷이 다시 연결됐어요'); prefetchLegs(); geocodeMissing(); renderStatus(); });
+  addEventListener('offline', () => { toast('인터넷이 끊겼어요. 저장된 안내로 보여 드려요', 4000); renderStatus(); });
   // 화면 층(목록·상세·지도)을 담는 무대는 절대 스크롤되면 안 됨: 브라우저가 밀어 버리면 바로 되돌림 (지도가 검게 비는 문제 방지)
   const stage = $('.stage');
   stage?.addEventListener('scroll', () => { if (stage.scrollLeft || stage.scrollTop) stage.scrollTo(0, 0); });

@@ -71,7 +71,7 @@ const HEADER_RE = /장소|목적지|place/i;
 const isHeaderRow = r => r.filter(c => String(c).trim()).length >= 2
   && r.some(c => HEADER_RE.test(String(c)) && String(c).trim().length <= 12);
 export const isHotel = s => /호텔|숙소|리조트|게스트하우스|에어비앤비|메리턴|풀러턴|hotel|suites|resort|hostel|airbnb/i.test(s);
-const isFlight = s => /탑승|비행기|항공편|flight|\b[A-Z]{2}\d{2,4}\b/i.test(s);
+export const isFlight = s => /탑승|비행기|항공편|flight|\b[A-Z]{2}\d{2,4}\b/i.test(s);
 
 // 시트 여러 개(날짜별 시트) 또는 하나(전체 일정)를 날짜별 일정으로 합치기
 function sheetsToPlan(sheets) {
