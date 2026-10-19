@@ -159,6 +159,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .status::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,.08); }
 .status.calm { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .status.calm::after { display: none; }
+/* 아직 여기 있어요 · 쉬는 중 카드 */
+.st-big.bad-big { font-size: 28px; color: #ffe08a; }
+.status.calm .st-big.bad-big { color: var(--warn); }
+.rest-row { align-items: center; }
+.rest-row span { font-size: 13px; font-weight: 700; opacity: .85; margin-right: 2px; }
+.rest-row button { padding: 7px 12px; }
+
 /* 상태 카드: 지금 할 일 한 줄 · 펼치면 자세히 */
 .st-do { margin: 8px 0 2px; padding: 9px 12px; border-radius: 12px; background: rgba(255,255,255,.16); font-size: 15px; font-weight: 600; line-height: 1.4; }
 .st-do b { font-weight: 800; }
@@ -483,6 +490,8 @@ button.chip.poi:active { background: var(--accent-soft); }
   background: linear-gradient(135deg, #e11d48, #f97316); color: #fff; border-radius: 20px; padding: 16px; box-shadow: 0 12px 34px rgba(225, 29, 72, .4);
 }
 .alarm-title { font-weight: 800; font-size: 19px; }
+.alarm-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.alarm-btns button:not(.primary) { background: rgba(255,255,255,.25); color: #fff; }
 .alarm button { margin-top: 10px; border: 0; background: #fff; color: #e11d48; font-weight: 800; border-radius: 12px; padding: 9px 20px; }
 /* 첨부 파일 */
 .clip { border: 0; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 1px 7px; margin-left: 7px; font-size: 13px; vertical-align: 2px; line-height: 1.5; }

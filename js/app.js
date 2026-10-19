@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610190706';
-import { arrivalGuide } from './guides.js?v=202610190706';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610191136';
+import { arrivalGuide } from './guides.js?v=202610191136';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610190706';
-import { createMap } from './map.js?v=202610190706';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610190706';
-import { PROXY_URL } from './config.js?v=202610190706';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610190706';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610190706';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610190706';
+} from './schedule.js?v=202610191136';
+import { createMap } from './map.js?v=202610191136';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610191136';
+import { PROXY_URL } from './config.js?v=202610191136';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610191136';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610191136';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610191136';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,12 +103,22 @@ function landingOf(d, i) {
   return intl ? (S.settings.landing || 75) : 30;
 }
 
+// 건너뛴 장소를 빼고 바로 앞에 실제로 들르는 장소 (경로는 거기서부터)
+function prevStop(d, i) {
+  const prog = S.progress[d.date] || {};
+  for (let j = i - 1; j >= 0; j--) if (!prog[d.items[j].id]?.skip) return d.items[j];
+  return d.items[i - 1];
+}
+
 function dayPlan(d) {
-  const legs = d.items.map((it, i) => (i ? legInfo(d.items[i - 1], it, it.mode) : null));
   const prog = S.progress[d.date] || {}, base = dayStartTz(d.date);
+  const legs = d.items.map((it, i) => (i ? legInfo(prevStop(d, i), it, it.mode) : null));
   const toMin = ts => (ts == null ? null : (ts - base) / 60000);
-  const actual = d.items.map(it => ({ arr: toMin(prog[it.id]?.arr), dep: toMin(prog[it.id]?.dep) }));
-  const items = d.items.map((it, i) => { const l = landingOf(d, i); return l ? { ...it, landing: l } : it; });
+  const actual = d.items.map(it => ({ arr: toMin(prog[it.id]?.arr), dep: toMin(prog[it.id]?.dep), hold: toMin(prog[it.id]?.hold) }));
+  const items = d.items.map((it, i) => {
+    const l = landingOf(d, i), sk = !!prog[it.id]?.skip;
+    return l || sk ? { ...it, ...(l ? { landing: l } : {}), ...(sk ? { skipped: true } : {}) } : it;
+  });
   return { legs, sched: computeSchedule(items, legs, actual, S.settings.buffer) };
 }
 
@@ -239,13 +249,13 @@ const decodeCached = poly => {
 
 // 이전 장소에서 출발한 시각(실제 기록이 있으면 그것)과 지금까지 지난 분
 function moveTimes(d, i) {
-  const prev = d.items[i - 1], p = progOf(d.date)[prev.id] || {};
-  const dep = p.dep ?? atMs(d.date, S.cur.sched[i - 1].depart);
+  const prev = prevStop(d, i), p = progOf(d.date)[prev.id] || {}, pi = d.items.indexOf(prev);
+  const dep = p.dep ?? atMs(d.date, S.cur.sched[pi].depart);
   return { dep, elapsed: Math.max(0, (Date.now() - dep) / 60000) };
 }
 
 function moveVisual(d, i, step = liveStep(d, i)) {
-  const prev = d.items[i - 1], it = d.items[i];
+  const prev = prevStop(d, i), it = d.items[i];
   if (!prev || !hasPos(prev) || !hasPos(it)) return '';
   const leg = S.cur.legs[i] || {}, m = MODES[it.mode];
   const { elapsed } = moveTimes(d, i);
@@ -266,7 +276,7 @@ function moveVisual(d, i, step = liveStep(d, i)) {
 
 // 지도 화면에 가지 않아도 보이는 작은 동선 그림: 이전 장소(■) → 내 위치(●) → 다음 장소(◎)
 function miniMapSvg(d, i) {
-  const prev = d.items[i - 1], it = d.items[i], leg = S.cur.legs[i] || {};
+  const prev = prevStop(d, i), it = d.items[i], leg = S.cur.legs[i] || {};
   const planned = decodeCached(leg.poly) || [prev, it];
   const live = S.live?.id === it.id && S.live.path?.length && S.pos ? [S.pos, ...S.live.path] : null;
   const me = S.pos && !S.pos.stale ? S.pos : null;
@@ -405,13 +415,29 @@ function renderStatus() {
   }
 
   const ph = phase(d);
+  const rest = resting(d), stuck = !rest && stuckInfo(d, ph);
   // 카드 구성은 어느 단계든 같게: 위 한 줄 · 장소 · 큰 숫자 · "지금 할 일" 한 줄 · (펼치면) 자세히 · 버튼
   const big = (label, ms) => `<div class="st-big ${urgency(ms - now)}"><small>${label}</small><span data-cd="${ms}">${fmtCountdown(ms - now)}</span></div>`;
   const todo = t => `<div class="st-do">${t}</div>`;
   const more = h => (h ? `<div class="st-more">${h}</div>` : '');
   const offline = navigator.onLine === false ? '<span class="st-off">📴 오프라인 · 저장된 안내</span>' : '';
   let html;
-  if (ph.type === 'done') {
+  if (rest) {
+    // 😴 쉬는 중: 출발 알람·안내를 멈춤 (예약 일정 알람은 그대로)
+    html = `<div class="st-label" data-nofold>😴 쉬는 중 · 출발 알람을 멈췄어요</div>
+      ${rest.day ? '<div class="st-title">오늘은 쉬는 날이에요</div>' : big('쉬기 끝까지', rest.until)}
+      ${todo(rest.day ? '예약해 둔 일정 알림만 울려요. 다시 움직일 때 [이제 출발]을 눌러 주세요' : `${clockAt(rest.until, d.date)}에 "이제 출발할까요?" 한 번만 알려 드려요`)}
+      <div class="st-actions"><button class="primary" data-act="restEnd">⏩ 이제 출발</button>${rest.day ? '' : '<button data-act="rest" data-m="30">+30분 더</button>'}</div>`;
+  } else if (stuck) {
+    // 🛏️ 위치로 보면 아직 그대로인데 시간표는 지나감 → 한 번 눌러서 고르기
+    const at = d.items[stuck.at], nx = d.items[stuck.next];
+    html = `<div class="st-label" data-nofold>📍 아직 ${esc(at.place)}에 계시네요</div>
+      <div class="st-big bad-big"><small>일정보다</small>${fmtDur(stuck.behind)} 늦음</div>
+      ${todo(`다음: <b>${esc(nx.place)}</b>${nx.time != null ? ` (${fmtClock(nx.time)} 예약)` : ''}${stuck.missed ? ` · 그 전 ${stuck.missed}곳은 건너뛰어요` : ''}`)}
+      <div class="st-actions"><button class="primary" data-act="replan" data-m="0">⏩ 지금 출발로 다시 맞추기</button><button data-act="replan" data-m="15">15분 뒤</button><button data-act="replan" data-m="30">30분 뒤</button></div>
+      <div class="st-actions"><button data-act="skipNext" data-i="${stuck.next}">⏭ ${esc(nx.place)} 건너뛰기</button></div>
+      <div class="st-actions rest-row"><span>😴 더 쉬기</span><button data-act="rest" data-m="30">30분</button><button data-act="rest" data-m="60">1시간</button><button data-act="rest" data-m="day">오늘은 쉬기</button></div>`;
+  } else if (ph.type === 'done') {
     el.classList.add('calm');
     const next = S.plan.days.find(x => x.date > d.date && x.items.length);
     html = `<div class="st-label">오늘 일정</div><div class="st-title">🎉 오늘 일정을 모두 마쳤어요</div>
@@ -450,15 +476,72 @@ function renderStatus() {
         <div class="st-title">${esc(ph.type === 'before' ? next.place : it.place)}</div>${big('출발까지', dep)}
         ${todo(`${fmtClock(s.depart)}에 출발 → ${esc(next.place)} · ${nm.icon} ${fmtDur(lg.dur)}${lg.est ? '(추정)' : ''}`)}
         ${more(`${legSummary(d, i + 1)}${altsHtml(d, i + 1)}`)}
-        <div class="st-actions">${legButtons(i + 1)}<button data-act="depart" data-i="${i}">출발 처리</button>${ph.type === 'before' ? wakeButton(d) : ''}</div>`;
+        <div class="st-actions">${legButtons(i + 1)}<button data-act="depart" data-i="${i}">출발 처리</button>${ph.type === 'before' ? wakeButton(d) : ''}${S.undo?.date === d.date && now - S.undo.at < 10 * 60000 ? '<button data-act="undoReplan">↩ 되돌리기</button>' : ''}</div>`;
     }
   }
   setStatusHtml(el, quickNear() + html);
 }
 
+// ---------- 아직 여기 있어요 · 다시 맞추기 · 쉬기 ----------
+S.rest = store.get('tg.rest', null); // { date, until(ms) } 또는 { date, day: true }
+const saveRest = () => store.set('tg.rest', S.rest);
+function resting(d) {
+  const r = S.rest;
+  return r && r.date === d.date && (r.day || Date.now() < r.until) ? r : null;
+}
+const gpsNow = () => { const p = S.pos; return p && !p.stale && (p.acc ?? 0) <= 300 && Date.now() - p.ts < 180000 ? p : null; };
+const nextStopIdx = (d, i) => { const prog = S.progress[d.date] || {}; for (let j = i + 1; j < d.items.length; j++) if (!prog[d.items[j].id]?.skip) return j; return -1; };
+
+// GPS로 보면 아직 앞 장소(숙소 등)에 있는데, 시간표는 떠날 시간이 15분 넘게 지난 경우
+function stuckInfo(d, ph) {
+  const pos = gpsNow();
+  if (!pos || !isLive() || ph.type === 'done') return null;
+  const R = Math.max(S.settings.radius, 150), sched = S.cur.sched, now = Date.now();
+  const near = k => k >= 0 && hasPos(d.items[k]) && haversine(pos, d.items[k]) <= R;
+  let at = -1, next = -1;
+  if (ph.type === 'stay' || ph.type === 'before') { at = ph.i; next = nextStopIdx(d, at); if (!near(at)) return null; }
+  else if (ph.type === 'move') {
+    next = ph.i;
+    for (let k = next - 1; k >= 0 && at < 0; k--) if (near(k)) at = k; // 앞쪽 장소 중 지금 있는 곳
+    if (at < 0) return null;
+  }
+  if (next < 0) return null;
+  const origin = d.items.indexOf(prevStop(d, next)), from = origin >= 0 ? origin : at;
+  const behind = (now - atMs(d.date, sched[from]?.depart ?? sched[at].depart)) / 60000;
+  if (behind < 15) return null;
+  const prog = S.progress[d.date] || {};
+  const missed = d.items.slice(at + 1, next).filter(it => !prog[it.id]).length;
+  return { at, next, behind, missed };
+}
+
+// 지금(또는 n분 뒤) 출발로 다시 맞추기: 놓친 곳은 건너뛰고, 예약 시각은 그대로 지킴
+function replan(d, at, next, mins = 0) {
+  const prog = progOf(d.date), now = Date.now();
+  S.undo = { date: d.date, at: now, snap: JSON.stringify(prog), rest: S.rest };
+  let missed = 0;
+  for (let j = at + 1; j < next; j++) {
+    const id = d.items[j].id;
+    if (!prog[id]?.arr) { prog[id] = { skip: true }; missed++; }
+  }
+  const p = prog[d.items[at].id] || {};
+  prog[d.items[at].id] = { arr: p.arr ?? now, hold: now + mins * 60000 };
+  S.rest = null; saveRest();
+  changed();
+  const lateN = S.cur.sched.filter((s, j) => j > at && !s.skipped && s.late > 0 && d.items[j].time != null).length;
+  toast(`${missed ? `놓친 ${missed}곳은 건너뛰었어요 · ` : ''}${mins ? `${mins}분 뒤` : '지금'} 출발로 다시 맞췄어요 · ${lateN ? `⚠ 예약 ${lateN}곳에 늦어요` : '예약은 그대로예요'}`, 7000);
+  prefetchLegs(); // 바뀐 출발지에서 가는 길 다시 받기
+}
+
+function setRest(d, m) {
+  const until = m === 'day' ? null : Math.max(Date.now(), resting(d)?.until || 0) + (+m) * 60000;
+  S.rest = m === 'day' ? { date: d.date, day: true } : { date: d.date, until };
+  saveRest(); renderStatus(); scheduleAlarms(true);
+  toast(m === 'day' ? '오늘은 쉬어요. 예약 일정 알림만 울려요' : `${clockAt(until, d.date)}까지 쉬어요. 출발 알람을 멈췄어요`, 5000);
+}
+
 // 상태 카드: 평소엔 "출발까지 38:58"처럼 큰 숫자만, 누르면 아래로 펼쳐 자세히, 위로 쓸어 올리면 다시 접힘
 function setStatusHtml(el, html) {
-  const foldable = html.includes('st-big');
+  const foldable = html.includes('st-big') && !html.includes('data-nofold');
   el.innerHTML = html + (foldable ? (S.statusOpen
     ? '<button class="st-fold" data-fold="close" aria-label="접기">︿ 위로 밀어 접기</button>'
     : '<div class="st-unfold">▾ 눌러서 자세히</div>') : '');
@@ -1121,7 +1204,10 @@ function detect() {
   const here = d.items.findIndex(it => prog[it.id]?.arr && !prog[it.id]?.dep);
   for (let i = last + 1; i < n; i++) {
     const it = d.items[i];
-    if (hasPos(it) && haversine(S.pos, it) <= r) {
+    // 낮에 숙소로 돌아와 쉬는데 "저녁 숙소 도착"으로 착각해 중간 일정을 다 건너뛰지 않게:
+    // 바로 다음 장소이거나, 도착 예정이 90분 안쪽인 장소만 자동 도착 처리
+    const soon = i === last + 1 || atMs(d.date, S.cur.sched[i]?.arrive ?? S.cur.sched[i]?.depart ?? 0) - Date.now() < 90 * 60000;
+    if (soon && hasPos(it) && haversine(S.pos, it) <= r) {
       markArrive(d, i);
       toast(`📍 ${it.place} 도착 (${clockAt(Date.now(), d.date)})`);
       return;
@@ -2097,14 +2183,20 @@ function buildAlarms() {
     const dn = Number(d.date.replace(/-/g, '').slice(2)); // yymmdd
     const prog = S.progress[d.date] || {};
     d.items.forEach((it, i) => {
-      const next = d.items[i + 1];
+      const j = nextStopIdx(d, i), next = d.items[j];
       if (!next || prog[it.id]?.dep || prog[it.id]?.skip) return;
       const dep = atMs(d.date, sched[i].depart), m = MODES[next.mode];
-      const body = `${it.place} → ${next.place} (${m.icon} ${m.label} ${fmtDur(legs[i + 1].dur)})`;
-      const id = dn * 100 + i * 2;
-      if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockAt(dep, d.date)})`, body });
-      list.push({ id: id + 1, at: dep, title: '🚶 지금 출발하세요', body });
+      // 쉬는 중: 쉬는 시간 안의 출발 알람은 빼고, "오늘은 쉬기"면 예약(시간 고정) 일정 알람만
+      const r = S.rest?.date === d.date ? S.rest : null;
+      if (r && (r.day ? next.time == null : dep < r.until)) return;
+      const body = `${it.place} → ${next.place} (${m.icon} ${m.label} ${fmtDur(legs[j].dur)})`;
+      const id = dn * 100 + i * 2, meta = { kind: 'depart', date: d.date, i };
+      if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockAt(dep, d.date)})`, body, ...meta });
+      list.push({ id: id + 1, at: dep, title: '🚶 지금 출발하세요', body, ...meta });
     });
+    if (S.rest?.date === d.date && S.rest.until) {
+      list.push({ id: dn * 100 + 96, at: S.rest.until, title: '😴 쉬는 시간이 끝났어요', body: '이제 출발할까요? 앱에서 [이제 출발]을 누르면 남은 일정을 다시 맞춰요', kind: 'restEnd', date: d.date });
+    }
     // 모닝콜 (번호 97~99: 장소 알람과 겹치지 않게)
     const w = d.wake;
     if (w?.on && d.items.length) {
@@ -2117,6 +2209,7 @@ function buildAlarms() {
       }
     }
   }
+  for (const a of S.snooze || []) if (a.at > Date.now()) list.push(a);
   return list;
 }
 
@@ -2134,10 +2227,23 @@ function scheduleAlarms(force, extra = []) {
 
 function showAlarm(a) {
   const el = $('#alarm');
-  el.innerHTML = `<div class="alarm-title">${esc(a.title)}</div><div>${esc(a.body)}</div><button data-act="dismissAlarm">확인</button>`;
+  S.alarmNow = a;
+  let title = a.title, body = a.body, btns = '<button class="primary" data-act="dismissAlarm">확인</button>';
+  if (a.kind === 'depart' || a.kind === 'restEnd') {
+    // 알람 직전에 위치 확인: 아직 그 장소에 그대로면 "출발하세요" 대신 다시 맞출지 물어봄
+    const d = S.plan.days.find(x => x.date === a.date), it = d?.items[a.i], pos = gpsNow();
+    const still = it && pos && hasPos(it) && haversine(pos, it) <= Math.max(S.settings.radius, 150);
+    if (still || a.kind === 'restEnd') {
+      if (it) title = `📍 아직 ${it.place}에 계세요`;
+      body = a.kind === 'restEnd' ? a.body : `출발할 시간이에요. 지금 출발 기준으로 남은 일정을 다시 맞출까요? (${a.body})`;
+      btns = `<button class="primary" data-act="${a.kind === 'restEnd' ? 'restEnd' : 'alarmReplan'}">⏩ 다시 맞추기</button>`;
+    }
+    btns += '<button data-act="alarmSnooze">10분 뒤</button><button data-act="dismissAlarm">닫기</button>';
+  }
+  el.innerHTML = `<div class="alarm-title">${esc(title)}</div><div>${esc(body)}</div><div class="alarm-btns">${btns}</div>`;
   el.hidden = false;
   beep();
-  webNotify(a);
+  webNotify({ ...a, title, body });
 }
 
 // ---------- 일정 불러오기 / 경로·위치 자동 계산 ----------
@@ -2355,9 +2461,10 @@ async function prefetchLegs() {
   let errors = 0;
   for (const d of days) {
     const { sched } = dayPlan(d);
+    const prog = S.progress[d.date] || {};
     for (let i = 1; i < d.items.length; i++) {
-      const a = d.items[i - 1], b = d.items[i];
-      if (!hasPos(a) || !hasPos(b)) continue;
+      const a = prevStop(d, i), b = d.items[i];
+      if (prog[b.id]?.skip || !hasPos(a) || !hasPos(b)) continue;
       if (!key && b.mode === 'TRANSIT') continue; // 대중교통은 구글(키 또는 초대 코드)이 있어야
       const c = S.legCache[legKey(a, b, b.mode)];
       const departAt = atMs(d.date, sched[i - 1].depart);
@@ -2412,11 +2519,11 @@ function taxiFare(distM, tz, fromAirport) {
 
 // "🚇 45분 · 🚕 25분 약 A$45~60 · 🚶 2시간 30분" 비교 줄 (계획한 방법 강조)
 function altsHtml(d, i) {
-  const a = d.items[i - 1], b = d.items[i];
+  const a = prevStop(d, i), b = d.items[i];
   if (!a || !hasPos(a) || !hasPos(b)) return '';
   const alt = S.legCache[altKey(a, b)];
   if (!alt) {
-    if (gkey() && navigator.onLine !== false) ensureAlts(a, b, atMs(d.date, S.cur.sched[i - 1].depart));
+    if (gkey() && navigator.onLine !== false) ensureAlts(a, b, atMs(d.date, S.cur.sched[d.items.indexOf(a)].depart));
     return '';
   }
   const tz = dayTz(d.date), fromAirport = !!landingOf(d, i - 1);
@@ -2571,6 +2678,20 @@ async function act(name, el) {
     }
     case 'route': openRouteSheet(i); break;
     case 'arrive': markArrive(d, i); break;
+    case 'replan': { const st = stuckInfo(d, phase(d)); const ph = phase(d);
+      const at = st?.at ?? (ph.type === 'stay' ? ph.i : 0), next = st?.next ?? nextStopIdx(d, at);
+      if (next >= 0) replan(d, at, next, +el.dataset.m || 0); break; }
+    case 'skipNext': { const prog = progOf(d.date); S.undo = { date: d.date, at: Date.now(), snap: JSON.stringify(prog), rest: S.rest };
+      prog[d.items[i].id] = { skip: true }; changed(); toast(`${d.items[i].place}은(는) 건너뛰었어요`); break; }
+    case 'rest': setRest(d, el.dataset.m); break;
+    case 'restEnd': { $('#alarm').hidden = true; S.rest = null; saveRest(); const ph = phase(d), at = ph.type === 'stay' ? ph.i : (stuckInfo(d, ph)?.at ?? 0);
+      const next = nextStopIdx(d, at); if (next >= 0) replan(d, at, next, 0); else { renderStatus(); scheduleAlarms(true); } break; }
+    case 'undoReplan': if (S.undo) { S.progress[S.undo.date] = JSON.parse(S.undo.snap); S.rest = S.undo.rest || null; saveRest(); S.undo = null; changed(); toast('되돌렸어요'); } break;
+    case 'alarmReplan': { const a = S.alarmNow, dd = S.plan.days.find(x => x.date === a?.date);
+      dismissAlarm(); if (dd) { selectDay(dd.date, false); const next = nextStopIdx(dd, a.i); if (next >= 0) replan(dd, a.i, next, 0); } break; }
+    case 'alarmSnooze': { const a = S.alarmNow; dismissAlarm();
+      if (a) { S.snooze = [...(S.snooze || []).filter(x => x.at > Date.now()).slice(-4), { ...a, id: Math.floor(a.id / 100) * 100 + 90 + ((S.snooze?.length || 0) % 5), at: Date.now() + 10 * 60000, title: `⏰ (10분 지남) ${a.title}` }];
+        scheduleAlarms(true); toast('10분 뒤에 다시 알려 드릴게요'); } break; }
     case 'depart': markDepart(d, i); break;
     case 'clear': delete progOf(d.date)[d.items[i].id]; changed(); break;
     case 'gmap': openExternal(placeUrl(d.items[i])); break;
