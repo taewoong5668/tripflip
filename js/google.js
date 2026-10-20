@@ -1,5 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
-import { PROXY_URL } from './config.js?v=202610191136';
+import { PROXY_URL } from './config.js?v=202610201243';
 
 const ROUTE_FIELDS = [
   'routes.duration',
@@ -384,16 +384,11 @@ export async function routeFor(key, from, to, mode, departAt) {
 }
 
 // 길안내 앱 열기: 한국 안이면 카카오맵(도보·자동차 길안내 가능), 아니면 구글맵
+// 길안내: 내 위치 → 목적지만 넘기고, 경로(지하철·버스·도보·택시)는 지도 앱에서 직접 고르게 함
+// 한국은 구글이 도보·차 길찾기를 안 해서 카카오맵
 export function navUrl(from, to, mode, name = '목적지') {
   if (inKorea(to)) return `https://map.kakao.com/link/to/${encodeURIComponent(name)},${to.lat},${to.lng}`;
-  return googleNavUrl(from, to, mode);
-}
-
-function googleNavUrl(from, to, mode) {
-  const gm = { WALK: 'walking', TRANSIT: 'transit', DRIVE: 'driving', BICYCLE: 'bicycling' }[mode] || 'transit';
-  const q = new URLSearchParams({ api: '1', destination: `${to.lat},${to.lng}`, travelmode: gm, dir_action: 'navigate' });
-  if (from) q.set('origin', `${from.lat},${from.lng}`);
-  return `https://www.google.com/maps/dir/?${q}`;
+  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', destination: `${to.lat},${to.lng}` })}`;
 }
 
 export function placeUrl(p) {

@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610191136';
-import { arrivalGuide } from './guides.js?v=202610191136';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610201243';
+import { arrivalGuide } from './guides.js?v=202610201243';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610191136';
-import { createMap } from './map.js?v=202610191136';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610191136';
-import { PROXY_URL } from './config.js?v=202610191136';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610191136';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610191136';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610191136';
+} from './schedule.js?v=202610201243';
+import { createMap } from './map.js?v=202610201243';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610201243';
+import { PROXY_URL } from './config.js?v=202610201243';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610201243';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610201243';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610201243';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -229,7 +229,8 @@ function nextLine(d, j) {
   return `<div class="st-row">다음 <b>${esc(it.place)}</b> · ${m.icon} ${fmtDur(leg.dur)}${leg.est ? '(추정)' : ''} · ${fmtClock(S.cur.sched[j].arrive)} 도착</div>`;
 }
 
-const legButtons = i => `<button data-act="nav" data-i="${i}" class="primary">길안내 시작</button><button data-act="route" data-i="${i}">경로 추천</button>`;
+// 길찾기는 지도 앱에서 (내 위치 → 목적지, 경로는 거기서 고르기)
+const legButtons = i => `<button data-act="nav" data-i="${i}" class="primary">🗺️ 길찾기</button>`;
 
 // 남은 거리·시간 (실시간 경로를 받았으면 그 값, 아니면 직선거리로 추정)
 function liveEta(it) {
@@ -240,13 +241,6 @@ function liveEta(it) {
 }
 
 // ---------- 이동 중: 진행 막대 · 작은 지도 · 대중교통 단계 ----------
-const polyCache = new Map();
-const decodeCached = poly => {
-  if (!poly) return null;
-  if (!polyCache.has(poly)) polyCache.set(poly, decodePolyline(poly));
-  return polyCache.get(poly);
-};
-
 // 이전 장소에서 출발한 시각(실제 기록이 있으면 그것)과 지금까지 지난 분
 function moveTimes(d, i) {
   const prev = prevStop(d, i), p = progOf(d.date)[prev.id] || {}, pi = d.items.indexOf(prev);
@@ -277,8 +271,8 @@ function moveVisual(d, i, step = liveStep(d, i)) {
 // 지도 화면에 가지 않아도 보이는 작은 동선 그림: 이전 장소(■) → 내 위치(●) → 다음 장소(◎)
 function miniMapSvg(d, i) {
   const prev = prevStop(d, i), it = d.items[i], leg = S.cur.legs[i] || {};
-  const planned = decodeCached(leg.poly) || [prev, it];
-  const live = S.live?.id === it.id && S.live.path?.length && S.pos ? [S.pos, ...S.live.path] : null;
+  const planned = [prev, it];
+  const live = S.live?.id === it.id && S.pos ? [S.pos, it] : null;
   const me = S.pos && !S.pos.stale ? S.pos : null;
   const pts = [...planned, prev, it, ...(me ? [me] : []), ...(live || [])];
   const lat0 = pts.reduce((a, p) => a + p.lat, 0) / pts.length, k = Math.cos(lat0 * Math.PI / 180);
@@ -455,7 +449,7 @@ function renderStatus() {
     html = `<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
       <div class="st-title">${esc(it.place)}</div>${num}${todo(step.text)}
       ${more(`<div class="st-row small">${sub}</div>${moveVisual(d, i, step)}`)}
-      <div class="st-actions"><button class="primary" data-act="openMap" data-i="${i}">지도</button><button data-act="nav" data-i="${i}">길안내</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
+      <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button><button data-act="openMap" data-i="${i}">지도</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
   } else {
     // 출발 전(첫 장소) · 머무는 중: 다음 장소로 떠날 때까지
     const i = ph.type === 'before' ? 0 : ph.i, it = items[i], s = sched[i], next = items[i + 1];
@@ -776,7 +770,7 @@ function renderDetail() {
     ${i > 0 ? `<div class="dt-card">
       <div class="note-label">가는 방법 · ${esc(prev.place)}에서</div>
       <div class="dt-leg">${m.icon} <b>${m.label} ${fmtDur(l.dur)}</b>${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''}${l.est ? '<span class="est">추정</span>' : ''}</div>
-      <div class="st-actions"><button data-act="route" data-i="${i}">경로 보기</button><button class="primary" data-act="nav" data-i="${i}">길안내 시작</button></div>
+      <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button></div>
     </div>` : ''}
     ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
     <div class="dt-card">
@@ -950,8 +944,7 @@ function drawLines() {
     const l = S.cur.legs[i] || {}, color = placeColor(i, itemState(d, i, ph));
     const focus = S.focus === i, dim = S.focus != null && !focus;
     const style = { color, width: focus ? 7 : 4, opacity: dim ? 0.3 : focus ? 1 : 0.7, z: focus ? 6 : 1 };
-    if (l.est === false && l.poly) lines.push({ path: decodeMemo(l.poly), ...style });
-    else lines.push({ path: [a, it], dashed: true, ...style, width: focus ? 4 : 3 });
+    lines.push({ path: [prevStop(d, i), it], dashed: true, ...style, width: focus ? 4 : 3 }); // 경로는 지도 앱에서: 여기선 순서만 직선으로
   });
   const sh = S.sheet;
   if (sh?.type === 'edit' && hasPos(sh.draft)) {
@@ -961,11 +954,7 @@ function drawLines() {
   if (S.routeView) lines.push({ path: S.routeView.path, color: S.routeView.color, width: 7, opacity: 0.95, z: 7 });
   const poiFrom = S.poi && d?.items[S.poi.from];
   if (hasPos(poiFrom)) lines.push({ path: [poiFrom, S.poi], color: '#ff7043', dashed: true, width: 3, z: 7 });
-  if (S.live && S.pos) {
-    const path = S.live.path?.length ? [S.pos, ...S.live.path] : [S.pos, S.live.to];
-    lines.push({ path, color: '#ffffff', width: 10, opacity: 0.9, z: 8 });
-    lines.push({ path, color: '#1a73e8', width: 6, opacity: 1, z: 9 });
-  }
+  if (S.live && S.pos) lines.push({ path: [S.pos, S.live.to], color: '#1a73e8', dashed: true, width: 4, opacity: 1, z: 9 }); // 내 위치 → 목적지
   S.map.setLines(lines);
 }
 
@@ -1223,7 +1212,6 @@ function detect() {
 }
 
 // 이동 중이면 내 위치에서 다음 장소까지 실제 길을 받아 파란 선으로. 길에서 벗어나거나 1분 지나면 다시 받음
-let liveFetching = false;
 async function updateLiveRoute(force) {
   const d = curDay(), ph = d && isLive() ? phase(d) : null;
   const target = ph?.type === 'move' ? d.items[ph.i] : null;
@@ -1231,20 +1219,8 @@ async function updateLiveRoute(force) {
     if (S.live) { S.live = null; drawLines(); }
     return;
   }
-  if (S.live?.id !== target.id) S.live = { id: target.id, to: target, path: null, at: 0, from: null };
-  const L = S.live, key = gkey(), now = Date.now();
-  const offRoute = L.path?.length && Math.min(...L.path.map(p => haversine(S.pos, p))) > 80;
-  const stale = !L.path || (now - L.at > 60000 && haversine(S.pos, L.from) > 60);
-  const canRoute = key || target.mode !== 'TRANSIT'; // 도보·차는 키 없이도 무료 경로로
-  if (canRoute && !liveFetching && (force || offRoute || stale) && now - L.at > 15000) {
-    liveFetching = true;
-    L.at = now; L.from = { ...S.pos };
-    try {
-      const [r] = await routeFor(key, S.pos, target, target.mode, null);
-      if (r && S.live === L) { L.path = decodePolyline(r.poly); L.dur = r.dur; L.dist = r.dist; }
-    } catch { /* 실패하면 직선으로 표시 */ }
-    liveFetching = false;
-  }
+  // 이동 중 경로는 앱에서 따로 계산하지 않음 (지도 앱에서 고른 경로를 따라가면 됨). 지도에는 내 위치 → 목적지 직선만
+  if (S.live?.id !== target.id) S.live = { id: target.id, to: target };
   drawLines();
 }
 
@@ -2532,7 +2508,7 @@ function altsHtml(d, i) {
     if (!r) return '';
     const cost = mode === 'TRANSIT' ? (r.fare || '') : mode === 'DRIVE' ? taxiFare(r.dist, tz, fromAirport) : '';
     const tooFar = mode === 'WALK' && r.dur > 60;
-    return `<button class="alt ${b.mode === mode ? 'on' : ''} ${tooFar ? 'far' : ''}" data-act="route" data-i="${i}">
+    return `<button class="alt ${b.mode === mode ? 'on' : ''} ${tooFar ? 'far' : ''}" data-act="nav" data-i="${i}">
       <span class="alt-ic">${icon}</span><b>${fmtDur(r.dur)}</b><small>${label}${cost ? ` · ${cost}` : ''}</small></button>`;
   };
   return `<div class="alts">${row('TRANSIT', '🚇', '대중교통')}${row('DRIVE', '🚕', '택시')}${row('WALK', '🚶', '도보')}</div>`;
