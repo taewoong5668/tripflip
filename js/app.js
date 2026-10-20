@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610201243';
-import { arrivalGuide } from './guides.js?v=202610201243';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202047';
+import { arrivalGuide } from './guides.js?v=202610202047';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610201243';
-import { createMap } from './map.js?v=202610201243';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610201243';
-import { PROXY_URL } from './config.js?v=202610201243';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610201243';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610201243';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610201243';
+} from './schedule.js?v=202610202047';
+import { createMap } from './map.js?v=202610202047';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202047';
+import { PROXY_URL } from './config.js?v=202610202047';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202047';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202047';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202047';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -483,14 +483,16 @@ function resting(d) {
   const r = S.rest;
   return r && r.date === d.date && (r.day || Date.now() < r.until) ? r : null;
 }
-const gpsNow = () => { const p = S.pos; return p && !p.stale && (p.acc ?? 0) <= 300 && Date.now() - p.ts < 180000 ? p : null; };
+const gpsNow = () => { const p = S.pos; return p && !p.stale && (p.acc ?? 0) <= 1000 && Date.now() - p.ts < 180000 ? p : null; };
+// "그 장소에 있다"고 볼 거리: 설정 반경(최소 150m) 또는 위치 오차만큼 (실내 대비, 최대 250m)
+const nearTol = p => Math.max(S.settings.radius, 150, Math.min(p?.acc ?? 0, 250));
 const nextStopIdx = (d, i) => { const prog = S.progress[d.date] || {}; for (let j = i + 1; j < d.items.length; j++) if (!prog[d.items[j].id]?.skip) return j; return -1; };
 
 // GPS로 보면 아직 앞 장소(숙소 등)에 있는데, 시간표는 떠날 시간이 15분 넘게 지난 경우
 function stuckInfo(d, ph) {
   const pos = gpsNow();
   if (!pos || !isLive() || ph.type === 'done') return null;
-  const R = Math.max(S.settings.radius, 150), sched = S.cur.sched, now = Date.now();
+  const R = nearTol(pos), sched = S.cur.sched, now = Date.now();
   const near = k => k >= 0 && hasPos(d.items[k]) && haversine(pos, d.items[k]) <= R;
   let at = -1, next = -1;
   if (ph.type === 'stay' || ph.type === 'before') { at = ph.i; next = nextStopIdx(d, at); if (!near(at)) return null; }
@@ -1186,8 +1188,11 @@ function markDepart(d, i, ts = Date.now()) {
 // GPS 위치로 도착·출발 자동 감지
 function detect() {
   const d = curDay();
-  if (!d || !S.pos || !isLive() || S.pos.acc > 300) return;
-  const r = S.settings.radius, prog = progOf(d.date), n = d.items.length;
+  // 실내(숙소·식당)에서는 와이파이·기지국 위치라 오차가 수백 m인 경우가 많음 → 그래도 도착은 알아채게
+  // (오차가 1.5km 넘는 아주 대략적인 위치만 무시)
+  if (!d || !S.pos || !isLive() || (S.pos.acc ?? 0) > 1500) return;
+  const r = S.settings.radius, prog = progOf(d.date), n = d.items.length, acc = S.pos.acc ?? 0;
+  const arriveTol = Math.max(r, Math.min(acc, 250)); // 오차만큼 넉넉하게 (최대 250m)
   let last = -1;
   d.items.forEach((it, i) => { const p = prog[it.id]; if (p && (p.arr || p.dep || p.skip)) last = i; });
   const here = d.items.findIndex(it => prog[it.id]?.arr && !prog[it.id]?.dep);
@@ -1196,7 +1201,7 @@ function detect() {
     // 낮에 숙소로 돌아와 쉬는데 "저녁 숙소 도착"으로 착각해 중간 일정을 다 건너뛰지 않게:
     // 바로 다음 장소이거나, 도착 예정이 90분 안쪽인 장소만 자동 도착 처리
     const soon = i === last + 1 || atMs(d.date, S.cur.sched[i]?.arrive ?? S.cur.sched[i]?.depart ?? 0) - Date.now() < 90 * 60000;
-    if (soon && hasPos(it) && haversine(S.pos, it) <= r) {
+    if (soon && hasPos(it) && haversine(S.pos, it) <= arriveTol) {
       markArrive(d, i);
       toast(`📍 ${it.place} 도착 (${clockAt(Date.now(), d.date)})`);
       return;
@@ -1204,7 +1209,8 @@ function detect() {
   }
   if (here >= 0 && here < n - 1) {
     const it = d.items[here];
-    if (hasPos(it) && haversine(S.pos, it) > Math.max(r * 1.5, r + 50)) {
+    // 출발은 위치가 정확할 때만 (실내에서 위치가 튀어서 "출발"로 잘못 처리되지 않게)
+    if (acc <= 300 && hasPos(it) && haversine(S.pos, it) > Math.max(r * 1.5, r + 50, acc)) {
       markDepart(d, here);
       toast(`🚶 ${it.place} 출발 (${clockAt(Date.now(), d.date)})`);
     }
@@ -2205,10 +2211,20 @@ function showAlarm(a) {
   const el = $('#alarm');
   S.alarmNow = a;
   let title = a.title, body = a.body, btns = '<button class="primary" data-act="dismissAlarm">확인</button>';
+  if (a.kind === 'depart') {
+    // 이미 지난 출발이면(출발·건너뜀 기록, 다음 장소에 이미 도착) 울리지 않음
+    const d = S.plan.days.find(x => x.date === a.date), prog = d && (S.progress[d.date] || {});
+    const j = d ? nextStopIdx(d, a.i) : -1, nx = d?.items[j], pos = S.pos;
+    const tol = Math.max(S.settings.radius, Math.min(pos?.acc ?? 0, 250));
+    if (d && (prog[d.items[a.i]?.id]?.dep || prog[d.items[a.i]?.id]?.skip || (nx && prog[nx.id]?.arr))) { scheduleAlarms(true); return; }
+    if (nx && pos && hasPos(nx) && (pos.acc ?? 0) <= 1500 && haversine(pos, nx) <= tol) {
+      markArrive(d, j); toast(`📍 이미 ${nx.place}에 계셔서 도착으로 처리했어요`, 5000); return;
+    }
+  }
   if (a.kind === 'depart' || a.kind === 'restEnd') {
     // 알람 직전에 위치 확인: 아직 그 장소에 그대로면 "출발하세요" 대신 다시 맞출지 물어봄
     const d = S.plan.days.find(x => x.date === a.date), it = d?.items[a.i], pos = gpsNow();
-    const still = it && pos && hasPos(it) && haversine(pos, it) <= Math.max(S.settings.radius, 150);
+    const still = it && pos && hasPos(it) && haversine(pos, it) <= nearTol(pos);
     if (still || a.kind === 'restEnd') {
       if (it) title = `📍 아직 ${it.place}에 계세요`;
       body = a.kind === 'restEnd' ? a.body : `출발할 시간이에요. 지금 출발 기준으로 남은 일정을 다시 맞출까요? (${a.body})`;
@@ -2940,7 +2956,14 @@ function checkTimeZone() {
   scheduleAlarms(true);
   toast('시간대가 바뀌어 알람을 현지 시간으로 다시 맞췄어요', 5000);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkTimeZone(); ackWake(); } });
+// 앱을 다시 열면: 시간대 확인 + 지금 위치로 도착 다시 확인 + 알람 다시 예약 (이미 도착한 곳 알람이 울리지 않게)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  checkTimeZone(); ackWake();
+  if (S.pos) detect();
+  Geo.once().then(p => { if (p && !S.settings.sim) onPos(p); });
+  scheduleAlarms(true); renderStatus();
+});
 
 // 1초마다 카운트다운 갱신, 날짜가 바뀌면 그날 일정으로 전환
 let ticks = 0;

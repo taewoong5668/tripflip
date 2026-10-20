@@ -63,7 +63,7 @@ export const isPdf = f => /pdf/i.test(f.type) || /\.pdf$/i.test(f.name);
 let pdfjs = null;
 export async function renderPdf(blob, container) {
   if (!pdfjs) {
-    pdfjs = await import('../lib/pdfjs/pdf.min.js?v=202610201243');
+    pdfjs = await import('../lib/pdfjs/pdf.min.js?v=202610202047');
     pdfjs.GlobalWorkerOptions.workerSrc = new URL('../lib/pdfjs/pdf.worker.min.js', import.meta.url).href;
   }
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
