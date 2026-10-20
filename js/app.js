@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202059';
-import { arrivalGuide } from './guides.js?v=202610202059';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202115';
+import { arrivalGuide } from './guides.js?v=202610202115';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610202059';
-import { createMap } from './map.js?v=202610202059';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202059';
-import { PROXY_URL } from './config.js?v=202610202059';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202059';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202059';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202059';
+} from './schedule.js?v=202610202115';
+import { createMap } from './map.js?v=202610202115';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202115';
+import { PROXY_URL } from './config.js?v=202610202115';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202115';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202115';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202115';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -136,11 +136,29 @@ function endMs(d, i) {
 }
 
 // 시간이 지나 끝난 일정인지 (지난 날은 전부, 오늘은 출발 시각이 지난 곳)
+// ---------- 예약 중심: 시간이 정해진 일정만 시각, 나머지는 순서만 ----------
+// 예약·공연·식당·조식처럼 시간을 적어 둔 일정 (첫 장소의 출발 시간은 "대략"이라 제외, 비행기 착륙은 포함)
+const isFixedItem = (d, i) => d.items[i]?.time != null && (i > 0 || !!landingOf(d, i));
+// from번부터 찾은 첫 예약 (건너뛴 곳 제외)
+function nextFixedIdx(d, from) {
+  const prog = S.progress[d.date] || {};
+  for (let j = Math.max(0, from); j < d.items.length; j++) if (!prog[d.items[j].id]?.skip && isFixedItem(d, j)) return j;
+  return -1;
+}
+// 예약 j에 맞추려면 늦어도 출발해야 하는 시각 (바로 앞 장소의 출발: 시간표가 예약에 맞춰 거꾸로 계산)
+function latestDepMs(d, j) {
+  const pi = d.items.indexOf(prevStop(d, j));
+  return atMs(d.date, schedOf(d)[pi]?.depart ?? schedOf(d)[j].arrive);
+}
+
 function isPast(d, i) {
   const t = todayStr();
   if (d.date < t) return true;
   if (d.date > t) return false;
-  return Date.now() > endMs(d, i);
+  if (isFixedItem(d, i) || i === 0) return Date.now() > endMs(d, i);
+  // 자유 일정은 시간으로 끝났다고 보지 않음: 뒤에 있는 예약이 이미 시작됐을 때만 지난 것으로
+  for (let j = i + 1; j < d.items.length; j++) if (isFixedItem(d, j)) return Date.now() > atMs(d.date, schedOf(d)[j].arrive ?? 0);
+  return false;
 }
 
 // 지금 어느 단계인지: 출발 전 / 체류 중 / 이동 중 / 끝
@@ -161,14 +179,21 @@ function phase(d) {
   return { type: 'move', i: last + 1 };
 }
 
+// 도착·출발 기록이 없을 때: 시간이 정해진 일정(예약·착륙)만 시각으로 판단하고,
+// 자유 일정은 "지금 여기 있겠지"라고 추측하지 않음 → { type: 'flex', i: 다음 들를 곳, until: 다음 예약 }
 function phaseByTime(d) {
   const sched = schedOf(d), now = Date.now(), n = d.items.length;
+  if (!sched[0] || now < atMs(d.date, sched[0].depart) && !landingOf(d, 0)) return { type: 'before', i: 0 };
+  let open = 1; // 아직 안 지난 첫 자유 일정
   for (let k = 0; k < n; k++) {
-    const arr = sched[k].arrive != null ? atMs(d.date, sched[k].arrive) : null;
-    if (arr != null && now < arr) return k === 0 ? { type: 'before', i: 0 } : { type: 'move', i: k, timed: true };
-    if (now < endMs(d, k)) return arr == null ? { type: 'before', i: 0 } : { type: 'stay', i: k, timed: true };
+    if (!isFixedItem(d, k)) continue;
+    const arr = atMs(d.date, sched[k].arrive ?? sched[k].depart);
+    if (now < arr) { if (k === 0) return { type: 'before', i: 0 }; break; } // 아직 안 온 예약 → 그 전 자유 시간 (착륙 전이면 출발 전)
+    if (now < endMs(d, k)) return { type: 'stay', i: k, timed: true }; // 예약 시간 중
+    open = k + 1;                                                 // 지난 예약 뒤부터
   }
-  return { type: 'done' };
+  if (n === 1 || open >= n) return { type: 'done' };
+  return { type: 'flex', i: Math.max(1, open), until: nextFixedIdx(d, open) };
 }
 
 function itemState(d, i, ph) {
@@ -176,6 +201,7 @@ function itemState(d, i, ph) {
   if (ph?.type === 'move' && ph.i === i) return 'next';
   if (ph?.type === 'stay' && ph.i === i) return 'here';
   if (ph?.type === 'before' && i === 0) return 'here';
+  if (ph?.type === 'flex' && ph.i === i) return 'next';
   if (p.skip) return 'skip';
   if (p.dep) return 'done';
   if (p.arr) return 'here';
@@ -426,7 +452,7 @@ function renderStatus() {
     // 🛏️ 위치로 보면 아직 그대로인데 시간표는 지나감 → 한 번 눌러서 고르기
     const at = d.items[stuck.at], nx = d.items[stuck.next];
     html = `<div class="st-label" data-nofold>📍 아직 ${esc(at.place)}에 계시네요</div>
-      <div class="st-big bad-big"><small>일정보다</small>${fmtDur(stuck.behind)} 늦음</div>
+      <div class="st-big bad-big"><small>${esc(d.items[stuck.fixed].place)} ${fmtClock(d.items[stuck.fixed].time)} 예약 · 출발 시간이</small>${stuck.behind < 1 ? '지금' : `${fmtDur(stuck.behind)} 지남`}</div>
       ${todo(`다음: <b>${esc(nx.place)}</b>${nx.time != null ? ` (${fmtClock(nx.time)} 예약)` : ''}${stuck.missed ? ` · 그 전 ${stuck.missed}곳은 건너뛰어요` : ''}`)}
       <div class="st-actions"><button class="primary" data-act="replan" data-m="0">⏩ 지금 출발로 다시 맞추기</button><button data-act="replan" data-m="15">15분 뒤</button><button data-act="replan" data-m="30">30분 뒤</button></div>
       <div class="st-actions"><button data-act="skipNext" data-i="${stuck.next}">⏭ ${esc(nx.place)} 건너뛰기</button></div>
@@ -438,19 +464,31 @@ function renderStatus() {
       ${next ? `<div class="st-actions"><button class="primary" data-act="goDay" data-date="${next.date}">${dayLabel(next.date)} 일정 보기</button></div>` : ''}`;
   } else if (ph.type === 'move') {
     const i = ph.i, it = items[i], s = sched[i], m = MODES[it.mode];
-    const arrMs = atMs(d.date, s.arrive), step = liveStep(d, i);
-    let num = big('도착 예정까지', arrMs), sub = `계획 ${fmtClock(s.arrive)} 도착${it.time != null ? ' (예약)' : ''}`;
+    const arrMs = atMs(d.date, s.arrive), step = liveStep(d, i), fixed = isFixedItem(d, i);
+    // 예약 장소로 가는 중이면 예약 시각 기준, 자유 일정이면 시각 없이 순서만 (다음 예약이 있으면 그 기준)
+    const jf = fixed ? i : nextFixedIdx(d, i + 1), dl = !fixed && jf >= 0 ? latestDepMs(d, jf) : null;
+    let num = fixed ? big('예약까지', arrMs) : dl ? big(`${esc(items[jf].place)} 예약 전 출발까지`, dl) : '';
+    let sub = fixed ? `🕒 ${fmtClock(it.time)} 예약` : '순서대로 · 도착하면 자동으로 다음으로 넘어가요';
     if (S.pos && !S.pos.stale && hasPos(it)) {
       const { dist, est, eta } = liveEta(it);
       const diff = Math.round((eta - arrMs) / 60000);
       num = `<div class="st-big"><small>남은 거리</small>${fmtDist(dist)}</div>`;
-      sub = `약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착 예상 · ${diff > 2 ? `<b class="bad">${diff}분 늦음</b>` : diff < -2 ? `${-diff}분 여유` : '제시간'}`;
+      sub = `약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착 예상${fixed ? ` · ${diff > 2 ? `<b class="bad">예약 ${diff}분 늦음</b>` : diff < -2 ? `${-diff}분 여유` : '제시간'}` : ''}`;
     }
     const ask = askArrive(d, ph) === i ? `<div class="st-ask">📍 <b>${esc(it.place)}</b>에 도착하셨나요?<span><button class="primary" data-act="arriveYes" data-i="${i}">네, 도착</button><button data-act="arriveNo" data-i="${i}">아직</button></span></div>` : '';
     html = `${ask}<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
       <div class="st-title">${esc(it.place)}</div>${num}${todo(step.text)}
       ${more(`<div class="st-row small">${sub}</div>${moveVisual(d, i, step)}`)}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button><button data-act="openMap" data-i="${i}">지도</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
+  } else if (ph.type === 'flex') {
+    // 🗺️ 자유 일정 중 (기록이 없어서 지금 어디인지는 모름): 다음 들를 곳 + 다음 예약까지 남은 시간
+    const i = ph.i, it = items[i], j = ph.until, lg = S.cur.legs[i] || {}, m = MODES[it.mode];
+    const cnt = (j >= 0 ? j : items.length) - i;
+    html = `<div class="st-label">🗺️ 자유 일정 · ${j >= 0 ? `${esc(items[j].place)} ${fmtClock(items[j].time)} 예약 전까지` : '순서대로'} ${offline}</div>
+      <div class="st-title">${esc(it.place)}</div>
+      ${j >= 0 ? big('늦어도 출발까지', latestDepMs(d, j)) : ''}
+      ${todo(`다음 들를 곳${cnt > 1 ? ` (남은 ${cnt}곳)` : ''} · ${m.icon} ${fmtDur(lg.dur)} · 도착하면 자동으로 다음으로 넘어가요`)}
+      <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button><button data-act="arrive" data-i="${i}">도착 처리</button><button data-act="skipNext" data-i="${i}">⏭ 건너뛰기</button></div>`;
   } else {
     // 출발 전(첫 장소) · 머무는 중: 다음 장소로 떠날 때까지
     const i = ph.type === 'before' ? 0 : ph.i, it = items[i], s = sched[i], next = items[i + 1];
@@ -467,9 +505,16 @@ function renderStatus() {
         <div class="st-actions"><button class="primary" data-act="depart" data-i="${i}">🚪 나왔어요</button>${legButtons(i + 1).replace('class="primary"', '')}</div>`;
     } else {
       const lg = S.cur.legs[i + 1] || {}, nm = MODES[next.mode];
+      // 출발 시각이 의미 있는 건 예약에 맞춰야 할 때뿐: 바로 다음이 예약이거나 지금이 예약 장소면 정확히, 아니면 다음 예약 기준
+      const jf = nextFixedIdx(d, i + 1), direct = jf >= 0 && d.items.indexOf(prevStop(d, jf)) === i;
+      const exact = isFixedItem(d, i) || direct, dl = jf >= 0 ? latestDepMs(d, jf) : null;
+      const num = exact ? big('출발까지', dep) : dl ? big(`${esc(items[jf].place)} 예약 전 출발까지`, dl) : '';
+      const what = exact
+        ? `${fmtClock(s.depart)}에 출발 → ${esc(next.place)} · ${nm.icon} ${fmtDur(lg.dur)}${lg.est ? '(추정)' : ''}`
+        : `다음: <b>${esc(next.place)}</b> · ${nm.icon} ${fmtDur(lg.dur)} · ${dl ? `늦어도 ${clockAt(dl, d.date)} 출발` : '순서대로 자유롭게'}`;
       html = `<div class="st-label">${lead} ${offline}</div>
-        <div class="st-title">${esc(ph.type === 'before' ? next.place : it.place)}</div>${big('출발까지', dep)}
-        ${todo(`${fmtClock(s.depart)}에 출발 → ${esc(next.place)} · ${nm.icon} ${fmtDur(lg.dur)}${lg.est ? '(추정)' : ''}`)}
+        <div class="st-title">${esc(ph.type === 'before' ? next.place : it.place)}</div>${num}
+        ${todo(what)}
         ${more(`${legSummary(d, i + 1)}${altsHtml(d, i + 1)}`)}
         <div class="st-actions">${legButtons(i + 1)}<button data-act="depart" data-i="${i}">출발 처리</button>${ph.type === 'before' ? wakeButton(d) : ''}${S.undo?.date === d.date && now - S.undo.at < 10 * 60000 ? '<button data-act="undoReplan">↩ 되돌리기</button>' : ''}</div>`;
     }
@@ -507,18 +552,20 @@ function stuckInfo(d, ph) {
   const near = k => k >= 0 && hasPos(d.items[k]) && haversine(pos, d.items[k]) <= R;
   let at = -1, next = -1;
   if (ph.type === 'stay' || ph.type === 'before') { at = ph.i; next = nextStopIdx(d, at); if (!near(at)) return null; }
-  else if (ph.type === 'move') {
+  else if (ph.type === 'move' || ph.type === 'flex') {
     next = ph.i;
     for (let k = next - 1; k >= 0 && at < 0; k--) if (near(k)) at = k; // 앞쪽 장소 중 지금 있는 곳
     if (at < 0) return null;
   }
   if (next < 0) return null;
-  const origin = d.items.indexOf(prevStop(d, next)), from = origin >= 0 ? origin : at;
-  const behind = (now - atMs(d.date, sched[from]?.depart ?? sched[at].depart)) / 60000;
-  if (behind < 15) return null;
+  // 자유 일정은 재촉하지 않음: 다음 예약에 맞춰 늦어도 떠나야 할 시각이 지났을 때만
+  const fixed = nextFixedIdx(d, next);
+  if (fixed < 0) return null;
+  const behind = (now - latestDepMs(d, fixed)) / 60000;
+  if (behind < 0) return null;
   const prog = S.progress[d.date] || {};
   const missed = d.items.slice(at + 1, next).filter(it => !prog[it.id]).length;
-  return { at, next, behind, missed };
+  return { at, next, behind, missed, fixed };
 }
 
 // 지금(또는 n분 뒤) 출발로 다시 맞추기: 놓친 곳은 건너뛰고, 예약 시각은 그대로 지킴
@@ -661,17 +708,28 @@ function renderTimeline() {
       const l = legs[i], m = MODES[it.mode];
       leg = `<div class="row-leg ${done ? 'done' : ''}"><span>${m.icon} ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''}</span></div>`;
     }
-    // 여유 = 도착해서 다음 장소로 떠나기 전까지 남는 시간 (정해 둔 체류시간이 아니라 실제 시간표 기준)
-    const isArr = s.arrive != null, free = i < n - 1 && s.stayEff > 0 ? s.stayEff : 0;
+    const fixed = isFixedItem(d, i);
     const tag = state === 'here' ? '<span class="row-tag now">지금</span>' : state === 'next' ? '<span class="row-tag next">다음</span>'
       : done ? `<span class="row-tag">${state === 'skip' ? '건너뜀' : '완료'}</span>` : '';
-    // 하루의 첫 장소는 머물던 곳이자 출발지: "00:00에 떠나기"만
+    // 시각은 예약(시간이 정해진 일정)에만. 첫 장소는 "대략 출발", 나머지 자유 일정은 순서만
     const first = i === 0 && n > 1 && !s.proc;
-    const sub = first ? `${fmtClock(s.depart)}에 떠나기`
-      : s.proc ? `✈️ 착륙 · 🛂 입국 절차 약 ${fmtDur(s.proc)} · ${fmtClock(s.depart)} 출발`
-      : [isArr ? '도착' : '출발', free ? `${fmtDur(free)}의 여유` : '', i < n - 1 && isArr ? `${fmtClock(s.depart)} 출발` : ''].filter(Boolean).join(' · ');
-    return `${leg}<div class="row ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
-      <div class="row-time">${fmtClock(first || !isArr ? s.depart : s.arrive)}</div>
+    const sub = first ? `${fmtClock(s.depart)}쯤 출발`
+      : s.proc ? `✈️ 착륙 · 🛂 입국 절차 약 ${fmtDur(s.proc)}`
+      : fixed ? `🕒 ${fmtClock(it.time)} 예약${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤까지` : ''}`
+      : i === n - 1 ? '마지막 · 순서대로' : '순서대로 둘러보기';
+    const timeCell = fixed || s.proc ? `<div class="row-time">${fmtClock(s.arrive)}</div>`
+      : first ? `<div class="row-time soft">${fmtClock(s.depart)}<small>출발</small></div>`
+      : '<div class="row-time flex">·</div>';
+    // 자유 일정 묶음 머리글: "🕒 허리케인스 그릴 18:30 예약 전까지 · 3곳 · 늦어도 17:55 출발"
+    let head = '';
+    if (!fixed && !first && !s.proc && !done && (i === 1 || isFixedItem(d, i - 1) || i === 0)) {
+      const j = nextFixedIdx(d, i + 1), cnt = (j < 0 ? n : j) - i;
+      head = j >= 0
+        ? `<div class="flex-head">🕒 <b>${esc(d.items[j].place)} ${fmtClock(d.items[j].time)}</b> 예약 전까지 · ${cnt}곳 자유롭게 · 늦어도 ${clockAt(latestDepMs(d, j), d.date)} 출발</div>`
+        : cnt > 1 ? `<div class="flex-head">🗺️ 자유 일정 · ${cnt}곳 순서대로</div>` : '';
+    }
+    return `${leg}${head}<div class="row ${state} ${fixed ? 'fixed' : ''}" data-act="openDetail" data-i="${i}" style="--c:${color}">
+      ${timeCell}
       <div class="row-main">
         <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
         <div class="row-sub">${sub}${s.late > 0 && !done ? ` <span class="late-tag">⚠ ${fmtDur(s.late)} 늦음</span>` : ''}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
@@ -714,7 +772,8 @@ function extraGaps(d) {
   const skip = d.skipMeals || {}; // 숨긴 추천 칸 (저장된 이름이라 그대로 둠: 식사·여유·밤 모두)
   for (let i = 1; i < n - 1; i++) {
     const it = d.items[i], s = sched[i];
-    if (s.arrive == null || !(s.stayEff >= FREE_MIN) || isHotel(it.place) || skip[`free-${it.id}`]) continue;
+    // 자유 일정은 원래 시간 제한이 없으니, 바로 다음이 예약이라 시간이 남을 때만 "여유 시간" 추천
+    if (s.arrive == null || !(s.stayEff >= FREE_MIN) || isHotel(it.place) || skip[`free-${it.id}`] || !isFixedItem(d, nextStopIdx(d, i))) continue;
     out.push({ ...EXTRA.free, k: i, skip: `free-${it.id}`, when: `${fmtClock(s.arrive)}~${fmtClock(s.depart)}`, free: s.stayEff,
       text: `${fmtDur(s.stayEff)}의 여유 · 근처 ${EXTRA.free.what} 추천` });
   }
@@ -771,7 +830,10 @@ function renderDetail() {
       ${it.address ? `<div class="dt-addr">${esc(it.address)}</div>` : ''}
     </div>
     ${i === 0 && n > 1 && !s.proc
-      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}에 떠나기</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)} 출발</em>` : ''}</div></div>`
+      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}쯤 출발</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)} 출발</em>` : ''}</div></div>`
+      : !isFixedItem(d, i) && !s.proc
+      ? (() => { const jf = nextFixedIdx(d, i + 1);
+          return `<div class="dt-times one"><div><span>자유 일정 · 순서대로</span><b>${jf >= 0 ? `${esc(d.items[jf].place)} ${fmtClock(d.items[jf].time)} 예약 전까지` : '시간 제한 없이'}</b>${jf >= 0 ? `<em>늦어도 ${clockAt(latestDepMs(d, jf), d.date)} 출발</em>` : ''}${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)} 도착</em>` : ''}</div></div>`; })()
       : `<div class="dt-times">
       <div><span>도착</span><b>${s.arrive != null ? fmtClock(s.arrive) : '—'}</b>${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)}</em>` : ''}</div>
       <div><span>여유</span><b>${free ? fmtDur(free) : '—'}</b></div>
@@ -2180,11 +2242,13 @@ function buildAlarms() {
     d.items.forEach((it, i) => {
       const j = nextStopIdx(d, i), next = d.items[j];
       if (!next || prog[it.id]?.dep || prog[it.id]?.skip) return;
+      // 출발 알람은 예약에 맞춰야 할 때만 (다음 장소가 시간이 정해진 일정). 자유 일정 사이는 알람 없음
+      if (!isFixedItem(d, j)) return;
       const dep = atMs(d.date, sched[i].depart), m = MODES[next.mode];
       // 쉬는 중: 쉬는 시간 안의 출발 알람은 빼고, "오늘은 쉬기"면 예약(시간 고정) 일정 알람만
       const r = S.rest?.date === d.date ? S.rest : null;
       if (r && (r.day ? next.time == null : dep < r.until)) return;
-      const body = `${it.place} → ${next.place} (${m.icon} ${m.label} ${fmtDur(legs[j].dur)})`;
+      const body = `${next.place} ${fmtClock(next.time)} 예약 · ${it.place}에서 ${m.icon} ${fmtDur(legs[j].dur)}`;
       const id = dn * 100 + i * 2, meta = { kind: 'depart', date: d.date, i };
       if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockAt(dep, d.date)})`, body, ...meta });
       list.push({ id: id + 1, at: dep, title: '🚶 지금 출발하세요', body, ...meta });
