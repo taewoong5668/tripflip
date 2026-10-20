@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202047';
-import { arrivalGuide } from './guides.js?v=202610202047';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202059';
+import { arrivalGuide } from './guides.js?v=202610202059';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610202047';
-import { createMap } from './map.js?v=202610202047';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202047';
-import { PROXY_URL } from './config.js?v=202610202047';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202047';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202047';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202047';
+} from './schedule.js?v=202610202059';
+import { createMap } from './map.js?v=202610202059';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202059';
+import { PROXY_URL } from './config.js?v=202610202059';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202059';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202059';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202059';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,11 +19,11 @@ const store = {
 const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
-const DEFAULTS = { apiKey: '', radius: 100, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false };
+const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false };
 // 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
 const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
-  settings: { ...DEFAULTS, ...store.get('tg.settings', {}) },
+  settings: (s => (s.radius === 100 ? { ...s, radius: 50 } : s))({ ...DEFAULTS, ...store.get('tg.settings', {}) }), // 예전 기본값 100m → 50m
   plan: store.get('tg.plan', null) || emptyPlan(),
   progress: store.get('tg.progress', {}), // 날짜 → 장소id → {arr, dep, skip} (ms)
   legCache: store.get('tg.legs', {}),      // 구간별 실제 경로
@@ -446,7 +446,8 @@ function renderStatus() {
       num = `<div class="st-big"><small>남은 거리</small>${fmtDist(dist)}</div>`;
       sub = `약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착 예상 · ${diff > 2 ? `<b class="bad">${diff}분 늦음</b>` : diff < -2 ? `${-diff}분 여유` : '제시간'}`;
     }
-    html = `<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
+    const ask = askArrive(d, ph) === i ? `<div class="st-ask">📍 <b>${esc(it.place)}</b>에 도착하셨나요?<span><button class="primary" data-act="arriveYes" data-i="${i}">네, 도착</button><button data-act="arriveNo" data-i="${i}">아직</button></span></div>` : '';
+    html = `${ask}<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
       <div class="st-title">${esc(it.place)}</div>${num}${todo(step.text)}
       ${more(`<div class="st-row small">${sub}</div>${moveVisual(d, i, step)}`)}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button><button data-act="openMap" data-i="${i}">지도</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
@@ -486,6 +487,16 @@ function resting(d) {
 const gpsNow = () => { const p = S.pos; return p && !p.stale && (p.acc ?? 0) <= 1000 && Date.now() - p.ts < 180000 ? p : null; };
 // "그 장소에 있다"고 볼 거리: 설정 반경(최소 150m) 또는 위치 오차만큼 (실내 대비, 최대 250m)
 const nearTol = p => Math.max(S.settings.radius, 150, Math.min(p?.acc ?? 0, 250));
+const ASK_R = 250; // 이 안인데 자동 도착이 안 되면 물어봄
+S.askNo = {};      // "아직" 누른 장소: 10분 동안 다시 안 물어봄
+// 이동 중인 목적지 근처(250m)인데 자동 도착 조건(50m·정확)은 아닐 때 → 물어볼 장소 번호
+function askArrive(d, ph) {
+  const pos = gpsNow();
+  if (!pos || ph.type !== 'move') return -1;
+  const it = d.items[ph.i];
+  if (!hasPos(it) || Date.now() - (S.askNo[it.id] || 0) < 10 * 60000) return -1;
+  return haversine(pos, it) <= ASK_R ? ph.i : -1;
+}
 const nextStopIdx = (d, i) => { const prog = S.progress[d.date] || {}; for (let j = i + 1; j < d.items.length; j++) if (!prog[d.items[j].id]?.skip) return j; return -1; };
 
 // GPS로 보면 아직 앞 장소(숙소 등)에 있는데, 시간표는 떠날 시간이 15분 넘게 지난 경우
@@ -1192,7 +1203,9 @@ function detect() {
   // (오차가 1.5km 넘는 아주 대략적인 위치만 무시)
   if (!d || !S.pos || !isLive() || (S.pos.acc ?? 0) > 1500) return;
   const r = S.settings.radius, prog = progOf(d.date), n = d.items.length, acc = S.pos.acc ?? 0;
-  const arriveTol = Math.max(r, Math.min(acc, 250)); // 오차만큼 넉넉하게 (최대 250m)
+  // 자동 도착은 엄격하게: 핀에서 반경(기본 50m) 안 + 위치 오차 75m 이하일 때만
+  // (실내처럼 부정확하면 자동으로 하지 않고 카드에서 "도착하셨나요?"를 물어봄 → askArrive)
+  const arriveTol = acc <= 75 ? r : -1;
   let last = -1;
   d.items.forEach((it, i) => { const p = prog[it.id]; if (p && (p.arr || p.dep || p.skip)) last = i; });
   const here = d.items.findIndex(it => prog[it.id]?.arr && !prog[it.id]?.dep);
@@ -2215,10 +2228,17 @@ function showAlarm(a) {
     // 이미 지난 출발이면(출발·건너뜀 기록, 다음 장소에 이미 도착) 울리지 않음
     const d = S.plan.days.find(x => x.date === a.date), prog = d && (S.progress[d.date] || {});
     const j = d ? nextStopIdx(d, a.i) : -1, nx = d?.items[j], pos = S.pos;
-    const tol = Math.max(S.settings.radius, Math.min(pos?.acc ?? 0, 250));
     if (d && (prog[d.items[a.i]?.id]?.dep || prog[d.items[a.i]?.id]?.skip || (nx && prog[nx.id]?.arr))) { scheduleAlarms(true); return; }
-    if (nx && pos && hasPos(nx) && (pos.acc ?? 0) <= 1500 && haversine(pos, nx) <= tol) {
-      markArrive(d, j); toast(`📍 이미 ${nx.place}에 계셔서 도착으로 처리했어요`, 5000); return;
+    const dn = nx && pos && hasPos(nx) && (pos.acc ?? 0) <= 1500 ? haversine(pos, nx) : Infinity;
+    if (dn <= S.settings.radius && (pos.acc ?? 0) <= 75) { markArrive(d, j); toast(`📍 이미 ${nx.place}에 계셔서 도착으로 처리했어요`, 5000); return; }
+    if (dn <= ASK_R) {
+      // 근처인데 확실하지 않음 → "출발하세요" 대신 이미 도착했는지 물어봄
+      S.alarmNow = { ...a, askDate: d.date, askI: j };
+      const el = $('#alarm');
+      el.innerHTML = `<div class="alarm-title">📍 이미 ${esc(nx.place)}에 도착하셨나요?</div><div>출발 알람 시간이지만 지금 ${esc(nx.place)} 근처로 보여요.</div>
+        <div class="alarm-btns"><button class="primary" data-act="alarmArrived">네, 도착</button><button data-act="dismissAlarm">아직 · 닫기</button></div>`;
+      el.hidden = false; beep(); webNotify({ title: `📍 이미 ${nx.place}에 도착하셨나요?`, body: '앱에서 [네, 도착]을 눌러 주세요' });
+      return;
     }
   }
   if (a.kind === 'depart' || a.kind === 'restEnd') {
@@ -2670,6 +2690,8 @@ async function act(name, el) {
     }
     case 'route': openRouteSheet(i); break;
     case 'arrive': markArrive(d, i); break;
+    case 'arriveYes': markArrive(d, i); toast(`📍 ${d.items[i].place} 도착`); break;
+    case 'arriveNo': S.askNo[d.items[i].id] = Date.now(); renderStatus(); break;
     case 'replan': { const st = stuckInfo(d, phase(d)); const ph = phase(d);
       const at = st?.at ?? (ph.type === 'stay' ? ph.i : 0), next = st?.next ?? nextStopIdx(d, at);
       if (next >= 0) replan(d, at, next, +el.dataset.m || 0); break; }
@@ -2681,6 +2703,8 @@ async function act(name, el) {
     case 'undoReplan': if (S.undo) { S.progress[S.undo.date] = JSON.parse(S.undo.snap); S.rest = S.undo.rest || null; saveRest(); S.undo = null; changed(); toast('되돌렸어요'); } break;
     case 'alarmReplan': { const a = S.alarmNow, dd = S.plan.days.find(x => x.date === a?.date);
       dismissAlarm(); if (dd) { selectDay(dd.date, false); const next = nextStopIdx(dd, a.i); if (next >= 0) replan(dd, a.i, next, 0); } break; }
+    case 'alarmArrived': { const a = S.alarmNow, dd = S.plan.days.find(x => x.date === a?.askDate); dismissAlarm();
+      if (dd) { markArrive(dd, a.askI); toast(`📍 ${dd.items[a.askI].place} 도착`); } break; }
     case 'alarmSnooze': { const a = S.alarmNow; dismissAlarm();
       if (a) { S.snooze = [...(S.snooze || []).filter(x => x.at > Date.now()).slice(-4), { ...a, id: Math.floor(a.id / 100) * 100 + 90 + ((S.snooze?.length || 0) % 5), at: Date.now() + 10 * 60000, title: `⏰ (10분 지남) ${a.title}` }];
         scheduleAlarms(true); toast('10분 뒤에 다시 알려 드릴게요'); } break; }
