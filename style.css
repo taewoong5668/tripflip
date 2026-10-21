@@ -555,3 +555,13 @@ button.chip.poi:active { background: var(--accent-soft); }
 #dayTabs .tab.drop-tab { background: var(--accent); color: #fff; transform: scale(1.08); }
 #timeline .row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .date-chips { max-height: 92px; overflow-y: auto; }
+#dragTrash {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 2500; /* 끌기 안내 알림(맨 아래)과 안 겹치게 */
+  transform: translate(-50%, 140%); opacity: 0; pointer-events: none; transition: transform .2s, opacity .2s, background .15s;
+  display: flex; align-items: center; gap: 8px; padding: 14px 26px; border-radius: 999px; white-space: nowrap;
+  background: var(--danger-soft); color: var(--danger); border: 2px dashed var(--danger); font-weight: 700; font-size: 15px;
+}
+#dragTrash.show { transform: translate(-50%, 0); opacity: 1; }
+#dragTrash.hot { background: var(--danger); color: #fff; border-style: solid; transform: translate(-50%, 0) scale(1.1); }
+#dragTrash .dt-icon { font-size: 22px; }
+.toast-btn { margin-left: 8px; padding: 4px 12px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 700; font-size: 13px; }

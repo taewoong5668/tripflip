@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211445';
-import { arrivalGuide } from './guides.js?v=202610211445';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211549';
+import { arrivalGuide } from './guides.js?v=202610211549';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610211445';
-import { createMap } from './map.js?v=202610211445';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211445';
-import { PROXY_URL } from './config.js?v=202610211445';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211445';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211445';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211445';
+} from './schedule.js?v=202610211549';
+import { createMap } from './map.js?v=202610211549';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211549';
+import { PROXY_URL } from './config.js?v=202610211549';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211549';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211549';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211549';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -555,6 +555,11 @@ function setupRowDrag() {
   const cancelPress = () => { if (press) clearTimeout(press.timer); press = null; };
   const tabAt = (x, y) => document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date], #dayTabs .tab'));
   const clearMarks = () => document.querySelectorAll('.row.drop-before, .row.drop-after, #dayTabs .drop-tab').forEach(e => e.classList.remove('drop-before', 'drop-after', 'drop-tab'));
+  // 들려 있을 때만 화면 아래에 나오는 휴지통: 여기에 놓으면 삭제
+  const trash = document.createElement('div');
+  trash.id = 'dragTrash'; trash.innerHTML = '<span class="dt-icon">🗑</span><span>여기에 놓으면 삭제</span>';
+  document.body.append(trash);
+  const overTrash = (x, y) => { const b = trash.getBoundingClientRect(); return x >= b.left - 20 && x <= b.right + 20 && y >= b.top - 20; };
 
   tl.addEventListener('pointerdown', e => {
     const row = e.target.closest('.row[data-i]');
@@ -564,9 +569,10 @@ function setupRowDrag() {
       // 0.45초 길게 누르면 끌기 시작
       S.drag = { i, row, y0: press.y, target: i, tab: null, id: e.pointerId };
       row.classList.add('dragging');
+      trash.classList.add('show');
       try { row.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
       navigator.vibrate?.(30);
-      toast('끌어서 순서를 바꾸거나, 위 날짜에 놓으면 그 날로 옮겨요', 2500);
+      toast('끌어서 순서 바꾸기 · 위 날짜에 놓으면 그 날로 · 아래 🗑에 놓으면 삭제', 2500);
       press = null;
     }, 450) };
   });
@@ -576,6 +582,9 @@ function setupRowDrag() {
     if (!g) return;
     g.row.style.transform = `translateY(${e.clientY - g.y0}px)`;
     clearMarks();
+    g.trash = overTrash(e.clientX, e.clientY);
+    trash.classList.toggle('hot', g.trash);
+    if (g.trash) { g.tab = null; return; }
     const tab = tabAt(e.clientX, e.clientY);
     g.tab = tab?.dataset.date && tab.dataset.date !== S.selected ? tab.dataset.date : null;
     if (g.tab) { tab.classList.add('drop-tab'); return; }
@@ -592,9 +601,11 @@ function setupRowDrag() {
     if (!g) return;
     S.drag = null;
     g.row.classList.remove('dragging'); g.row.style.transform = '';
+    trash.classList.remove('show', 'hot');
     clearMarks();
     S.dragJustEnded = Date.now(); // 끌고 놓은 직후의 "누르기"로 상세가 열리지 않게
     const d = curDay(), it = d.items[g.i];
+    if (g.trash) { trashItem(d, g.i); return; }
     if (g.tab) { moveItemToDay(d.date, it.id, g.tab); return; }
     if (g.target === g.i) return;
     const items = d.items.filter((_, k) => k !== g.i);
@@ -1313,9 +1324,16 @@ function focusMapItem(i, scrollCard = true) {
 }
 
 let toastTimer;
-function toast(msg, ms = 3000) {
+// undo: { label, fn } 주면 알림 안에 버튼(예: 되돌리기)을 붙임
+function toast(msg, ms = 3000, undo = null) {
   const el = $('#toast');
   el.textContent = msg; el.hidden = false;
+  if (undo) {
+    const b = document.createElement('button');
+    b.className = 'toast-btn'; b.textContent = undo.label;
+    b.onclick = e => { e.stopPropagation(); el.hidden = true; undo.fn(); };
+    el.append(' ', b);
+  }
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), ms);
 }
@@ -2270,6 +2288,27 @@ function deletePlace(d, idx) {
   recompute();
   if (S.sheet?.type === 'edit') closeSheet();
   renderAll(false); prefetchLegs(); scheduleAlarms();
+}
+
+// 휴지통에 놓아 지우기: 묻지 않고 바로 지우고, 알림의 "되돌리기"로 되살림 (첨부 파일은 되돌릴 수 있게 남겨 둠)
+function trashItem(d, idx) {
+  const it = d.items[idx], prog = progOf(d.date)[it.id];
+  const day = S.plan.days.indexOf(d);
+  d.items.splice(idx, 1);
+  delete progOf(d.date)[it.id];
+  const emptied = !d.items.length;
+  if (emptied) S.plan.days = S.plan.days.filter(x => x !== d);
+  const redraw = () => { savePlan(); saveProgress(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms(); };
+  redraw();
+  navigator.vibrate?.(40);
+  toast(`🗑 ${it.place}을(를) 지웠어요`, 6000, { label: '되돌리기', fn: () => {
+    if (emptied) S.plan.days.splice(Math.min(day, S.plan.days.length), 0, d);
+    d.items.splice(Math.min(idx, d.items.length), 0, it);
+    if (prog) progOf(d.date)[it.id] = prog;
+    S.selected = d.date;
+    redraw();
+    toast(`${it.place}을(를) 되살렸어요`);
+  } });
 }
 
 function movePlace(d, idx, dir) {
