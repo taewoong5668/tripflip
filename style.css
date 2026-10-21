@@ -537,3 +537,13 @@ button.chip.poi:active { background: var(--accent-soft); }
   background: rgba(18, 24, 38, .92); color: #fff; padding: 10px 16px; border-radius: 14px; font-size: 14px; font-weight: 600; max-width: 90vw; text-align: center;
   backdrop-filter: blur(8px);
 }
+
+/* 상세 화면: 대중교통 가능한 노선 · 승차→하차 정류장 */
+.ride-all { margin: 8px 0 4px; font-size: 13px; font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ride-chip { padding: 3px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+.ride-opts { margin: 6px 0 4px; padding-left: 20px; }
+.ride-opts > li { margin: 10px 0; }
+.ro-head { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
+.ro-ride { margin: 4px 0; font-size: 15px; }
+.ro-time { margin-left: 4px; font-size: 12px; font-weight: 700; color: var(--accent); }
+.ro-stops { margin-top: 2px; font-size: 13px; color: var(--text); line-height: 1.45; }

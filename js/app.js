@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610202115';
-import { arrivalGuide } from './guides.js?v=202610202115';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211003';
+import { arrivalGuide } from './guides.js?v=202610211003';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610202115';
-import { createMap } from './map.js?v=202610202115';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610202115';
-import { PROXY_URL } from './config.js?v=202610202115';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610202115';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610202115';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610202115';
+} from './schedule.js?v=202610211003';
+import { createMap } from './map.js?v=202610211003';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211003';
+import { PROXY_URL } from './config.js?v=202610211003';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211003';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211003';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211003';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -396,6 +396,32 @@ function legSummary(d, j) {
     ? `${s.icon} ${esc(s.line || '')} <b>${esc(s.from)}</b> 승차 → <b>${esc(s.to)}</b> 하차${s.stops ? ` (${s.stops}정거장)` : ''}`
     : `🚶 ${fmtDur(s.dur)}`);
   return `<div class="leg-sum"><div class="ls-head">${esc(it.place)}까지 · 약 ${fmtDur(leg.dur)}${leg.fare ? ` · ${leg.fare}` : ''}</div><ol>${parts.map(p => `<li>${p}</li>`).join('')}</ol></div>`;
+}
+
+// 대중교통 가능한 노선 모두: "① 🚌 333 (North Bondi 방면) · 🚏 Elizabeth St → 🚏 Campbell Pde · 14정거장"
+function rideOptionsHtml(l, date) {
+  const opts = l?.alts?.length ? l.alts : l?.segs?.length ? [{ dur: l.dur, rides: ridesOf(l.segs) }] : [];
+  if (!opts.length || !opts[0].rides.length) {
+    return `<div class="muted small">${gkey() ? '노선 정보를 아직 못 받았어요. 인터넷이 되면 자동으로 받아요.' : '버스·지하철 노선 정보는 ⚙️ 설정에서 초대 코드를 넣으면 보여요.'}</div>`;
+  }
+  const lineName = r => `${r.icon} <b>${esc(r.line || '노선')}</b>`;
+  // 같은 노선·같은 정류장이면 하나로 묶고 출발 시각만 모음 ("11:58 · 12:04 · 12:10 출발")
+  const groups = new Map();
+  for (const o of opts) {
+    const k = o.rides.map(r => `${r.line}|${r.from}|${r.to}`).join('>');
+    const g = groups.get(k) || { ...o, times: [] };
+    if (o.dur < g.dur) g.dur = o.dur;
+    if (o.rides[0]?.dep) g.times.push(o.rides[0].dep);
+    groups.set(k, g);
+  }
+  const list = [...groups.values()];
+  const all = list.map(o => o.rides.map(r => `${r.icon} ${r.line || ''}`).join(' + '));
+  return `<div class="ride-all">가능한 노선: ${all.map(x => `<span class="ride-chip">${esc(x)}</span>`).join('')}</div>
+    <ol class="ride-opts">${list.map(o => `<li>
+      <div class="ro-head">약 ${fmtDur(o.dur)}${o.walk ? ` · 걷기 ${fmtDur(o.walk)}` : ''}${o.rides.length > 1 ? ` · 환승 ${o.rides.length - 1}번` : ''}${o.times.length ? ` · <span class="ro-time">${[...new Set(o.times.sort())].slice(0, 4).map(t => clockAt(Date.parse(t), date)).join(' · ')} 출발</span>` : ''}</div>
+      ${o.rides.map(r => `<div class="ro-ride">${lineName(r)}${r.headsign ? ` <span class="muted small">${esc(r.headsign)} 방면</span>` : ''}
+        <div class="ro-stops">🚏 ${esc(r.from)} <b>승차</b> → 🚏 ${esc(r.to)} <b>하차</b>${r.stops ? ` · ${r.stops}정거장` : ''}</div></div>`).join('')}
+    </li>`).join('')}</ol>`;
 }
 
 // 공항 입국 절차 (펼치면 단계별)
@@ -843,8 +869,9 @@ function renderDetail() {
     ${hasPos(it) ? '' : `<button class="dt-warn fix" data-act="fixPlace" data-i="${i}">⚠ 위치를 찾지 못했어요 · <u>눌러서 지도에서 찾기</u></button>`}
     <div class="dt-card"><div class="dt-dist" data-dist="${i}">📍 내 위치를 확인하는 중…</div></div>
     ${i > 0 ? `<div class="dt-card">
-      <div class="note-label">가는 방법 · ${esc(prev.place)}에서</div>
+      <div class="note-label">가는 방법 · ${esc(prevStop(d, i).place)}에서</div>
       <div class="dt-leg">${m.icon} <b>${m.label} ${fmtDur(l.dur)}</b>${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''}${l.est ? '<span class="est">추정</span>' : ''}</div>
+      ${it.mode === 'TRANSIT' ? rideOptionsHtml(l, d.date) : ''}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button></div>
     </div>` : ''}
     ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
@@ -1385,7 +1412,12 @@ async function openRouteSheet(i) {
   selectRoute(rec || results[0]?.mode, 0);
 }
 
-const pickLeg = r => ({ dur: r.dur, dist: r.dist, poly: r.poly, segs: r.segs, fare: r.fare || null, v: 2 });
+// 경로 저장: 대표 경로 + (대중교통이면) 가능한 다른 노선들까지 최대 5개 (인터넷 없을 때도 보이게)
+const ridesOf = segs => (segs || []).filter(s => s.type === 'TRANSIT').map(s => ({ icon: s.icon, line: s.line, from: s.from, to: s.to, stops: s.stops, headsign: s.headsign, dep: s.depTime || null }));
+const pickLeg = (r, all) => ({
+  dur: r.dur, dist: r.dist, poly: r.poly, segs: r.segs, fare: r.fare || null, v: 3,
+  alts: (all || [r]).slice(0, 5).map(x => ({ dur: x.dur, walk: Math.round((x.segs || []).filter(s => s.type === 'WALK').reduce((a, s) => a + (s.dur || 0), 0)), rides: ridesOf(x.segs) })).filter(a => a.rides.length),
+});
 
 function selectRoute(mode, idx) {
   const sh = S.sheet;
@@ -2544,10 +2576,10 @@ async function prefetchLegs() {
       if (!key && b.mode === 'TRANSIT') continue; // 대중교통은 구글(키 또는 초대 코드)이 있어야
       const c = S.legCache[legKey(a, b, b.mode)];
       const departAt = atMs(d.date, sched[i - 1].depart);
-      if (!c || (b.mode === 'TRANSIT' && !c.fail && c.v !== 2)) {
+      if (!c || (b.mode === 'TRANSIT' && !c.fail && (c.v || 0) < 3)) { // 예전 경로는 노선·정류장 정보를 더해 한 번 다시
         try {
           const routes = await routeFor(key, a, b, b.mode, departAt);
-          S.legCache[legKey(a, b, b.mode)] = routes.length ? pickLeg(routes[0]) : { fail: true };
+          S.legCache[legKey(a, b, b.mode)] = routes.length ? pickLeg(routes[0], routes) : { fail: true };
           saveLegs();
         } catch (e) {
           if (++errors >= 3) { toast(`경로를 미리 받지 못했어요: ${e.message}`, 5000); return; }
