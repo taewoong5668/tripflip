@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211549';
-import { arrivalGuide } from './guides.js?v=202610211549';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211616';
+import { arrivalGuide } from './guides.js?v=202610211616';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610211549';
-import { createMap } from './map.js?v=202610211549';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211549';
-import { PROXY_URL } from './config.js?v=202610211549';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211549';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211549';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211549';
+} from './schedule.js?v=202610211616';
+import { createMap } from './map.js?v=202610211616';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211616';
+import { PROXY_URL } from './config.js?v=202610211616';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211616';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211616';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211616';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -171,7 +171,7 @@ function phase(d) {
     const p = prog[it.id];
     if (!p) return;
     if (p.arr && !p.dep) here = i;
-    if (p.arr || p.dep || p.skip) last = i;
+    if (p.arr || p.dep || p.skip || p.pass) last = i;
   });
   if (here >= 0) return { type: 'stay', i: here };
   if (last < 0) return { type: 'before', i: 0 };
@@ -203,8 +203,10 @@ function itemState(d, i, ph) {
   if (ph?.type === 'before' && i === 0) return 'here';
   if (ph?.type === 'flex' && ph.i === i) return 'next';
   if (p.skip) return 'skip';
-  if (p.dep) return 'done';
+  if (p.dep || p.pass) return 'done';
   if (p.arr) return 'here';
+  // 지금 가는 곳·머무는 곳보다 앞 장소는 도착 기록이 없어도 지나온 곳 (앱을 다시 깔거나 감지를 못 했어도 되살아나지 않게)
+  if (ph && ph.type !== 'before' && ph.i != null && i < ph.i) return 'done';
   return isPast(d, i) ? 'done' : '';
 }
 
@@ -501,8 +503,7 @@ function renderStatus() {
       num = `<div class="st-big"><small>남은 거리</small>${fmtDist(dist)}</div>`;
       sub = `약 ${fmtDur(est)} · ${clockAt(eta, d.date)} 도착 예상${fixed ? ` · ${diff > 2 ? `<b class="bad">예약 ${diff}분 늦음</b>` : diff < -2 ? `${-diff}분 여유` : '제시간'}` : ''}`;
     }
-    const ask = askArrive(d, ph) === i ? `<div class="st-ask">📍 <b>${esc(it.place)}</b>에 도착하셨나요?<span><button class="primary" data-act="arriveYes" data-i="${i}">네, 도착</button><button data-act="arriveNo" data-i="${i}">아직</button></span></div>` : '';
-    html = `${ask}<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
+    html = `${askHtml(d, ph)}<div class="st-label">이동 중 → ${labelOf(d, i)}번 · ${m.icon} ${m.label} ${offline}</div>
       <div class="st-title">${esc(it.place)}</div>${num}${todo(step.text)}
       ${more(`<div class="st-row small">${sub}</div>${moveVisual(d, i, step)}`)}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button><button data-act="openMap" data-i="${i}">지도</button><button data-act="arrive" data-i="${i}">도착 처리</button></div>`;
@@ -510,7 +511,7 @@ function renderStatus() {
     // 🗺️ 자유 일정 중 (기록이 없어서 지금 어디인지는 모름): 다음 들를 곳 + 다음 예약까지 남은 시간
     const i = ph.i, it = items[i], j = ph.until, lg = S.cur.legs[i] || {}, m = MODES[it.mode];
     const cnt = (j >= 0 ? j : items.length) - i;
-    html = `<div class="st-label">🗺️ 자유 일정 · ${j >= 0 ? `${esc(items[j].place)} ${fmtClock(items[j].time)} 예약 전까지` : '순서대로'} ${offline}</div>
+    html = `${askHtml(d, ph)}<div class="st-label">🗺️ 자유 일정 · ${j >= 0 ? `${esc(items[j].place)} ${fmtClock(items[j].time)} 예약 전까지` : '순서대로'} ${offline}</div>
       <div class="st-title">${esc(it.place)}</div>
       ${j >= 0 ? big('늦어도 출발까지', latestDepMs(d, j)) : ''}
       ${todo(`다음 들를 곳${cnt > 1 ? ` (남은 ${cnt}곳)` : ''} · ${m.icon} ${fmtDur(lg.dur)} · 도착하면 자동으로 다음으로 넘어가요`)}
@@ -638,10 +639,25 @@ S.askNo = {};      // "아직" 누른 장소: 10분 동안 다시 안 물어봄
 // 이동 중인 목적지 근처(250m)인데 자동 도착 조건(50m·정확)은 아닐 때 → 물어볼 장소 번호
 function askArrive(d, ph) {
   const pos = gpsNow();
-  if (!pos || ph.type !== 'move') return -1;
-  const it = d.items[ph.i];
-  if (!hasPos(it) || Date.now() - (S.askNo[it.id] || 0) < 10 * 60000) return -1;
-  return haversine(pos, it) <= ASK_R ? ph.i : -1;
+  if (!pos || (ph.type !== 'move' && ph.type !== 'flex')) return -1;
+  const prog = S.progress[d.date] || {};
+  const near = it => hasPos(it) && !prog[it.id] && Date.now() - (S.askNo[it.id] || 0) >= 10 * 60000 && haversine(pos, it) <= ASK_R;
+  if (near(d.items[ph.i])) return ph.i;
+  // 앞 장소 도착을 감지 못 한 채 이미 더 뒤 장소에 와 있을 때 (다음 예약까지 안에서만, 숙소·방금 있던 곳 근처는 제외)
+  const from = ph.i > 0 ? prevStop(d, ph.i) : null, stop = nextFixedIdx(d, ph.i + 1);
+  for (let k = ph.i + 1; k <= (stop < 0 ? d.items.length - 1 : stop); k++) {
+    const it = d.items[k];
+    if (isHotel(it.place) || (from && hasPos(from) && hasPos(it) && haversine(from, it) <= ASK_R)) continue;
+    if (near(it)) return k;
+  }
+  return -1;
+}
+// "○○에 도착하셨나요?" 묻는 줄 (더 뒤 장소면 앞 장소는 끝난 것으로 한다고 알려줌)
+function askHtml(d, ph) {
+  const k = askArrive(d, ph);
+  if (k < 0) return '';
+  const skipN = k - ph.i;
+  return `<div class="st-ask">📍 <b>${esc(d.items[k].place)}</b>에 도착하셨나요?${skipN > 0 ? `<small>앞의 ${skipN}곳은 다녀온 것으로 할게요</small>` : ''}<span><button class="primary" data-act="arriveYes" data-i="${k}">네, 도착</button><button data-act="arriveNo" data-i="${k}">아직</button></span></div>`;
 }
 const nextStopIdx = (d, i) => { const prog = S.progress[d.date] || {}; for (let j = i + 1; j < d.items.length; j++) if (!prog[d.items[j].id]?.skip) return j; return -1; };
 
@@ -742,6 +758,25 @@ function wakeButton(d) {
 // "a. 커피  b. 페이스트리" → ['커피', '페이스트리']
 const splitChips = t => t.split(/\s+(?=[a-zA-Z]\.\s)/).map(x => x.replace(/^[a-zA-Z]\.\s*/, '').trim()).filter(Boolean);
 
+// 진행 고치기: 어디까지 했는지 한 번에 맞추기 + 이 날 진행 초기화
+function progHtml() {
+  const d = curDay();
+  if (!d) return '';
+  const ph = phase(d), prog = S.progress[d.date] || {};
+  const label = { done: '완료', skip: '건너뜀', here: '지금', next: '다음' };
+  const rows = d.items.map((it, i) => {
+    const st = itemState(d, i, ph), p = prog[it.id];
+    return `<div class="pg-row ${st}"><span class="pg-num">${st === 'done' || st === 'skip' ? '✓' : labelOf(d, i)}</span>
+      <span class="pg-name">${esc(it.place)}${label[st] ? `<small>${label[st]}</small>` : ''}</span>
+      ${p ? `<button class="chip-btn" data-act="clear" data-i="${i}">기록 지우기</button>` : ''}
+      ${isLive() ? `<button class="chip-btn" data-act="doneUpTo" data-i="${i}">여기까지 끝</button>` : ''}</div>`;
+  }).join('');
+  return `<div class="sheet-head"><div><div class="st-label">${dayLabel(d.date)}</div><b>✅ 진행 상황 고치기</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <div class="muted small">이미 다녀온 곳이 아직 남아 있으면, 마지막으로 다녀온 곳의 <b>여기까지 끝</b>을 누르세요. 그 앞은 모두 끝난 것으로 하고, 다음 장소는 지금부터 다시 계산해요.</div>
+    <div class="pg-list">${rows}</div>
+    <div class="st-actions"><button class="danger" data-act="resetProgress">🔄 이 날 진행 초기화 (처음부터)</button></div>`;
+}
+
 function notesHtml(it, i) {
   const parts = (it.notes || []).map(n => n.label === '주변 추천'
     ? `<div class="note"><div class="note-label">주변 추천 <span class="muted small">· 누르면 위치와 정보</span></div><div class="chips">${splitChips(n.text).map(c => `<button class="chip poi" data-act="poi" data-i="${i}" data-name="${esc(c)}">📍 ${esc(c)}</button>`).join('')}</div></div>`
@@ -756,7 +791,7 @@ function dayHeaderHtml(d, done) {
   const title = d?.title || (n ? `오늘의 동선 · ${n}곳` : '');
   const wake = d?.wake?.on ? `<button class="progress wake" data-act="wake" data-date="${d.date}">⏰ ${fmtClock(d.wake.time)}</button>` : '';
   return `<div class="day-head"><div><div class="t">${esc(title)}</div>${d?.subtitle ? `<div class="s">${esc(d.subtitle)}</div>` : ''}</div>
-    <div class="head-pills">${wake}${n ? `<span class="progress">${done}/${n} 완료</span>` : ''}</div></div>`;
+    <div class="head-pills">${wake}${n ? `<button class="progress" data-act="progSheet" aria-label="진행 상황 고치기">${done}/${n} 완료 ›</button>` : ''}</div></div>`;
 }
 
 // 표 아래 요약·가이드 메모를 읽기 좋게
@@ -962,7 +997,8 @@ function renderDetail() {
       ${i < n - 1 ? `<button data-act="moveDown" data-i="${i}">↓ 순서 뒤로</button>` : ''}
       ${isLive() && i > 0 ? `<button data-act="arrive" data-i="${i}">도착 처리</button>` : ''}
       ${isLive() && i < n - 1 ? `<button data-act="depart" data-i="${i}">출발 처리</button>` : ''}
-      ${p.arr || p.dep || p.skip ? `<button data-act="clear" data-i="${i}">기록 지우기</button>` : ''}
+      ${isLive() ? `<button data-act="doneUpTo" data-i="${i}">✅ 여기까지 끝났어요</button>` : ''}
+      ${p.arr || p.dep || p.skip || p.pass ? `<button data-act="clear" data-i="${i}">기록 지우기</button>` : ''}
       ${hasPos(it) ? `<button data-act="gmap" data-i="${i}">지도 앱에서 보기</button>` : ''}
       <button data-act="delPlace" data-i="${i}" class="danger">삭제</button>
     </div>
@@ -1354,10 +1390,37 @@ function markArrive(d, i, ts = Date.now()) {
     if (j >= i) return;
     const p = prog[it.id];
     if (p?.arr && !p.dep) p.dep = ts;          // 앞 장소는 출발한 것으로
-    else if (!p) prog[it.id] = { skip: true }; // 들르지 않은 장소는 건너뜀
+    else if (!p) prog[it.id] = { pass: true }; // 기록 없는 앞 장소는 지나온 것으로 (들렀는데 감지를 못 했을 수 있음)
   });
   prog[d.items[i].id] = { arr: ts };
   changed();
+}
+
+// "여기까지 끝났어요": i번까지 모두 끝난 것으로, 다음 장소는 지금 출발 기준으로 다시 계산
+function markDoneUpTo(d, i) {
+  const prog = progOf(d.date), snap = JSON.stringify(prog), now = Date.now();
+  d.items.forEach((it, j) => {
+    if (j > i) return;
+    const p = prog[it.id];
+    if (p?.skip) return;
+    if (p?.arr && !p.dep) p.dep = now;
+    else if (!p || !(p.arr || p.dep || p.pass)) prog[it.id] = { pass: true };
+  });
+  changed();
+  toast(`✅ ${d.items[i].place}까지 끝난 것으로 했어요`, 6000, undoProg(d, snap));
+}
+const undoProg = (d, snap) => ({ label: '되돌리기', fn: () => { S.progress[d.date] = JSON.parse(snap); changed(); toast('되돌렸어요'); } });
+
+// 이 날 진행 초기화: 도착·출발·건너뜀 기록과 쉬기를 모두 지우고 처음부터 (일정 자체는 그대로)
+function resetDay(d) {
+  if (!confirm(`${dayLabel(d.date)} 진행 기록(도착·출발·건너뜀)을 모두 지우고 처음부터 다시 할까요?
+일정은 그대로 남아요.`)) return;
+  const snap = JSON.stringify(progOf(d.date));
+  S.progress[d.date] = {};
+  if (S.rest?.date === d.date) { S.rest = null; saveRest(); }
+  closeSheet();
+  changed();
+  toast('🔄 진행 기록을 초기화했어요', 6000, undoProg(d, snap));
 }
 
 function markDepart(d, i, ts = Date.now()) {
@@ -1378,7 +1441,7 @@ function detect() {
   // (실내처럼 부정확하면 자동으로 하지 않고 카드에서 "도착하셨나요?"를 물어봄 → askArrive)
   const arriveTol = acc <= 75 ? r : -1;
   let last = -1;
-  d.items.forEach((it, i) => { const p = prog[it.id]; if (p && (p.arr || p.dep || p.skip)) last = i; });
+  d.items.forEach((it, i) => { const p = prog[it.id]; if (p && (p.arr || p.dep || p.skip || p.pass)) last = i; });
   const here = d.items.findIndex(it => prog[it.id]?.arr && !prog[it.id]?.dep);
   for (let i = last + 1; i < n; i++) {
     const it = d.items[i];
@@ -1569,7 +1632,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml }[sh.type](sh);
 }
 
 // ---------- 일정을 넣거나 바꿀 때 미리 계산해서 예약 지각·밀림 알려주기 ----------
@@ -2386,7 +2449,7 @@ function settingsHtml() {
       <button data-act="load">📂 엑셀/CSV 일정 불러오기</button>
       <button data-act="guide">📄 일정 양식 · AI로 만들기</button>
       <button data-act="rename">여행 이름 바꾸기</button>
-      ${curDay() ? '<button data-act="resetProgress">이 날 도착 기록 지우기</button><button data-act="clearRoutes">경로 다시 계산</button>' : ''}
+      ${curDay() ? '<button data-act="resetProgress">이 날 진행 초기화</button><button data-act="clearRoutes">경로 다시 계산</button>' : ''}
       ${S.plan.days.length ? '<button data-act="deletePlan" class="danger">모든 일정 삭제</button>' : ''}
     </div>`;
 }
@@ -2536,8 +2599,13 @@ function carryOver(oldPlan, plan) {
 function loadPlan(plan) {
   const kept = carryOver(S.plan, plan);
   if (kept) setTimeout(() => toast(`${kept}는 그대로 이어졌어요`, 4000), 3200);
+  // 진행 기록도 이어감: 같은 날짜·같은 장소 이름이면 새 일정에 그대로 (일정을 고쳐 다시 넣어도 다녀온 곳이 되살아나지 않게)
+  const old = new Map();
+  for (const d of S.plan.days) for (const it of d.items) { const p = S.progress[d.date]?.[it.id]; if (p) old.set(`${d.date}|${it.place}`, p); }
+  const progress = {};
+  for (const d of plan.days) for (const it of d.items) { const p = old.get(`${d.date}|${it.place}`); if (p) (progress[d.date] ||= {})[it.id] = p; }
   S.plan = plan; savePlan();
-  S.progress = {}; saveProgress();
+  S.progress = progress; saveProgress();
   const places = plan.days.reduce((n, d) => n + d.items.length, 0);
   toast(`${plan.days.length}일, ${places}곳을 불러왔어요`);
   closeSheet();
@@ -2951,7 +3019,7 @@ async function act(name, el) {
       if (a) { S.snooze = [...(S.snooze || []).filter(x => x.at > Date.now()).slice(-4), { ...a, id: Math.floor(a.id / 100) * 100 + 90 + ((S.snooze?.length || 0) % 5), at: Date.now() + 10 * 60000, title: `⏰ (10분 지남) ${a.title}` }];
         scheduleAlarms(true); toast('10분 뒤에 다시 알려 드릴게요'); } break; }
     case 'depart': markDepart(d, i); break;
-    case 'clear': delete progOf(d.date)[d.items[i].id]; changed(); break;
+    case 'clear': delete progOf(d.date)[d.items[i].id]; changed(); if (S.sheet?.type === 'prog') renderSheet(); break;
     case 'gmap': openExternal(placeUrl(d.items[i])); break;
     case 'closeSheet': closeSheet(); break;
     case 'pickMode': selectRoute(el.dataset.mode, 0); break;
@@ -2978,7 +3046,9 @@ async function act(name, el) {
       scheduleAlarms(true, [{ id: 999999, at: Date.now() + 10000, title: '🔔 테스트 알람', body: '알람이 잘 울려요' }]);
       toast('10초 뒤에 알람이 울려요. 앱을 닫거나 화면을 꺼도 돼요');
       break;
-    case 'resetProgress': S.progress[d.date] = {}; changed(); toast('이 날의 도착 기록을 지웠어요'); break;
+    case 'resetProgress': resetDay(d); break;
+    case 'doneUpTo': closeSheet(); markDoneUpTo(d, i); break;
+    case 'progSheet': S.sheet = { type: 'prog' }; S.routeView = null; renderSheet(); break;
     case 'clearRoutes': S.legCache = {}; saveLegs(); recompute(); renderAll(false); prefetchLegs(); toast('경로를 다시 계산해요'); break;
     case 'deletePlan':
       if (!confirm('모든 일정과 기록을 지울까요?')) break;

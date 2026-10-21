@@ -204,6 +204,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .st-ask { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
   margin: 0 0 10px; padding: 10px 12px; border-radius: 14px; background: #fff; color: #1f2937; font-size: 14px; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 .st-ask span { display: flex; gap: 6px; }
+.st-ask small { display: block; width: 100%; font-size: 12px; opacity: .8; }
 .st-ask button { padding: 7px 12px; border-radius: 10px; font-weight: 800; }
 .st-ask button.primary { background: #4f46e5; color: #fff; }
 .status.calm .st-ask { background: var(--accent-soft); color: var(--text); }
@@ -565,3 +566,14 @@ button.chip.poi:active { background: var(--accent-soft); }
 #dragTrash.hot { background: var(--danger); color: #fff; border-style: solid; transform: translate(-50%, 0) scale(1.1); }
 #dragTrash .dt-icon { font-size: 22px; }
 .toast-btn { margin-left: 8px; padding: 4px 12px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 700; font-size: 13px; }
+
+/* 진행 상황 고치기 */
+button.progress { font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.pg-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.pg-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.pg-row.done, .pg-row.skip { opacity: .6; }
+.pg-row.here, .pg-row.next { border-color: var(--accent); }
+.pg-num { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--accent-soft); color: var(--accent); }
+.pg-name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-name small { margin-left: 6px; font-size: 11px; color: var(--muted); font-weight: 700; }
+.pg-row .chip-btn { flex: none; padding: 5px 9px; font-size: 12px; }
