@@ -1,14 +1,14 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211003';
-import { arrivalGuide } from './guides.js?v=202610211003';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211445';
+import { arrivalGuide } from './guides.js?v=202610211445';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610211003';
-import { createMap } from './map.js?v=202610211003';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211003';
-import { PROXY_URL } from './config.js?v=202610211003';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211003';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211003';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211003';
+} from './schedule.js?v=202610211445';
+import { createMap } from './map.js?v=202610211445';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211445';
+import { PROXY_URL } from './config.js?v=202610211445';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211445';
+import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211445';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211445';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -546,6 +546,70 @@ function renderStatus() {
     }
   }
   setStatusHtml(el, quickNear() + html);
+}
+
+// ---------- 길게 눌러 끌어서 순서 바꾸기 · 위 날짜 탭에 놓으면 그 날로 옮기기 ----------
+function setupRowDrag() {
+  const tl = $('#timeline');
+  let press = null; // { i, row, x, y, timer }
+  const cancelPress = () => { if (press) clearTimeout(press.timer); press = null; };
+  const tabAt = (x, y) => document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date], #dayTabs .tab'));
+  const clearMarks = () => document.querySelectorAll('.row.drop-before, .row.drop-after, #dayTabs .drop-tab').forEach(e => e.classList.remove('drop-before', 'drop-after', 'drop-tab'));
+
+  tl.addEventListener('pointerdown', e => {
+    const row = e.target.closest('.row[data-i]');
+    if (!row || e.target.closest('button') || S.drag) return;
+    const i = +row.dataset.i;
+    press = { i, row, x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      // 0.45초 길게 누르면 끌기 시작
+      S.drag = { i, row, y0: press.y, target: i, tab: null, id: e.pointerId };
+      row.classList.add('dragging');
+      try { row.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
+      navigator.vibrate?.(30);
+      toast('끌어서 순서를 바꾸거나, 위 날짜에 놓으면 그 날로 옮겨요', 2500);
+      press = null;
+    }, 450) };
+  });
+  tl.addEventListener('pointermove', e => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress(); // 그냥 스크롤
+    const g = S.drag;
+    if (!g) return;
+    g.row.style.transform = `translateY(${e.clientY - g.y0}px)`;
+    clearMarks();
+    const tab = tabAt(e.clientX, e.clientY);
+    g.tab = tab?.dataset.date && tab.dataset.date !== S.selected ? tab.dataset.date : null;
+    if (g.tab) { tab.classList.add('drop-tab'); return; }
+    // 손가락 위치로 들어갈 자리 찾기
+    const rows = [...tl.querySelectorAll('.row[data-i]')].filter(r => r !== g.row);
+    let t = rows.length;
+    for (let k = 0; k < rows.length; k++) { const b = rows[k].getBoundingClientRect(); if (e.clientY < b.top + b.height / 2) { t = k; break; } }
+    g.target = t;
+    if (rows[t]) rows[t].classList.add('drop-before'); else rows.at(-1)?.classList.add('drop-after');
+  });
+  const end = () => {
+    cancelPress();
+    const g = S.drag;
+    if (!g) return;
+    S.drag = null;
+    g.row.classList.remove('dragging'); g.row.style.transform = '';
+    clearMarks();
+    S.dragJustEnded = Date.now(); // 끌고 놓은 직후의 "누르기"로 상세가 열리지 않게
+    const d = curDay(), it = d.items[g.i];
+    if (g.tab) { moveItemToDay(d.date, it.id, g.tab); return; }
+    if (g.target === g.i) return;
+    const items = d.items.filter((_, k) => k !== g.i);
+    items.splice(g.target, 0, it);
+    const imp = confirmChange(d, items);
+    if (!imp) { renderTimeline(); return; }
+    d.items = items;
+    savePlan(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
+    changeToast(imp, `${it.place} 순서를 ${g.target + 1}번째로 바꿨어요`);
+  };
+  tl.addEventListener('pointerup', end);
+  tl.addEventListener('pointercancel', end);
+  // 끄는 중엔 화면 스크롤 막기
+  tl.addEventListener('touchmove', e => { if (S.drag && e.cancelable) e.preventDefault(); }, { passive: false });
+  tl.addEventListener('contextmenu', e => { if (S.drag || press) e.preventDefault(); });
 }
 
 // ---------- 아직 여기 있어요 · 다시 맞추기 · 쉬기 ----------
@@ -1501,9 +1565,9 @@ function previewChange(d, newItems) {
     if (!b) { if (a.short >= 10) tight.push({ it, mins: Math.round(a.stayEff ?? 0) }); return; } // 새 일정이 들어갈 틈이 모자람
     if (a.late > (b.late || 0)) late.push({ it, mins: a.late });
     const cut = (b.stayEff ?? 0) - (a.stayEff ?? 0);
-    if (j < newItems.length - 1 && cut >= 10) shortened.push({ it, mins: Math.round(cut) });
+    if (it.time != null && j < newItems.length - 1 && cut >= 10) shortened.push({ it, mins: Math.round(cut) }); // 자유 일정은 원래 시간 제한이 없어서 알리지 않음
     const moved = (a.arrive ?? a.depart) - (b.arrive ?? b.depart);
-    if (moved >= 5) shifted.push({ it, mins: Math.round(moved) });
+    if (it.time != null && moved >= 5) shifted.push({ it, mins: Math.round(moved) }); // 시간 없는 일정은 순서만 의미 있어서 "밀림"을 알리지 않음
   });
   return { late, shifted, shortened, tight };
 }
@@ -2040,6 +2104,13 @@ function editHtml(sh) {
     </div>
     <div class="field">이동 방법<div class="chips">${modes}</div></div>`;
   } else {
+    // 다른 날로 옮기기: 날짜를 고르면 저장할 때 그 날로 옮겨짐 (시간이 있으면 그 시간 순서에 맞게 끼워 넣음)
+    if (sh.id) {
+      const target = sh.moveTo || sh.date;
+      html += `<div class="field">날짜 <span class="muted small">(다른 날로 옮기려면 고르세요)</span><div class="chips date-chips">${S.plan.days.map(x =>
+        `<button class="chip-btn ${x.date === target ? 'on' : ''}" data-act="edDate" data-date="${x.date}">${dayLabel(x.date)}</button>`).join('')}</div>
+        ${target !== sh.date ? `<div class="muted small">저장하면 <b>${dayLabel(target)}</b>로 옮겨져요</div>` : ''}</div>`;
+    }
     html += legInfo + `<div class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}
       ${timeField('edTime', dr.time, { placeholder: isStart ? '출발 시간 고르기' : '정해진 시간 없음 (자동)', clearable: !isStart })}</div>
     ${sh.id ? `<div class="field">${isStart ? '출발 전 머무는 시간' : '머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>` : ''}
@@ -2122,6 +2193,12 @@ function edSave() {
     time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [], files: dr.files || [],
   };
   if (dr.auto) item.auto = true;
+  if (sh.id && sh.moveTo && sh.moveTo !== sh.date) {
+    sh.saved = true;
+    (sh.removed || []).forEach(id => deleteFile(id).catch(() => {}));
+    if (moveItemToDay(sh.date, sh.id, sh.moveTo, item)) closeSheet();
+    return;
+  }
   let imp = null;
   if (!sh.trip) {
     // 끼워 넣거나 고쳐서 뒤 예약에 늦게 되면 먼저 물어봄
@@ -2151,6 +2228,35 @@ function edSave() {
   prefetchLegs();
   scheduleAlarms();
   changeToast(imp, sh.id ? '수정했어요' : sh.trip ? `${originOf(sh).place} → ${item.place} 일정을 만들었어요` : `${item.place} 저장했어요. 지도에 표시했어요`);
+}
+
+// 다른 날로 옮길 때 넣을 자리: 시간이 있으면 그 시간 순서대로, 없으면 맨 뒤(마지막이 숙소면 숙소 앞)
+function insertIndexFor(d, item) {
+  const n = d.items.length;
+  if (!n) return 0;
+  if (item.time != null) {
+    const sched = dayPlan(d).sched;
+    for (let j = 1; j < n; j++) { const a = sched[j].arrive ?? sched[j].depart; if (a != null && a > item.time) return j; }
+  }
+  return n > 1 && isHotel(d.items[n - 1].place) ? n - 1 : n;
+}
+
+// 일정 하나를 다른 날로 옮기기 (그 날 예약에 늦게 되면 먼저 물어봄)
+function moveItemToDay(fromDate, id, toDate, item) {
+  const from = S.plan.days.find(x => x.date === fromDate), to = ensureDay(toDate);
+  const old = from?.items.find(x => x.id === id);
+  if (!from || !old) return false;
+  const moved = { ...(item || old), id };
+  const items = [...to.items];
+  items.splice(insertIndexFor(to, moved), 0, moved);
+  const imp = to.items.length ? confirmChange(to, items) : { late: [], shifted: [], shortened: [], tight: [] };
+  if (!imp) return false;
+  from.items = from.items.filter(x => x.id !== id);
+  delete progOf(fromDate)[id];
+  to.items = items;
+  savePlan(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
+  changeToast(imp, `${moved.place}을(를) ${dayLabel(toDate)}${moved.time != null ? ` ${fmtClock(moved.time)}` : ''}로 옮겼어요`);
+  return true;
 }
 
 function deletePlace(d, idx) {
@@ -2786,6 +2892,7 @@ async function act(name, el) {
     }
     case 'route': openRouteSheet(i); break;
     case 'arrive': markArrive(d, i); break;
+    case 'edDate': syncDraft(); S.sheet.moveTo = el.dataset.date; renderSheet(); break;
     case 'arriveYes': markArrive(d, i); toast(`📍 ${d.items[i].place} 도착`); break;
     case 'arriveNo': S.askNo[d.items[i].id] = Date.now(); renderStatus(); break;
     case 'replan': { const st = stuckInfo(d, phase(d)); const ph = phase(d);
@@ -2916,7 +3023,7 @@ function finishPick() {
 }
 
 document.addEventListener('click', e => {
-  if (Date.now() - swipedAt < 400) return;
+  if (Date.now() - swipedAt < 400 || Date.now() - (S.dragJustEnded || 0) < 400) return;
   const b = e.target.closest('[data-act]');
   if (b) { e.stopPropagation(); act(b.dataset.act, b); return; }
   const tab = e.target.closest('.tab');
@@ -2937,6 +3044,7 @@ function dragTracker(el, { onMove, onEnd, axis: want, holdY }) {
   const begin = (x, y) => { st = { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
   const move = (x, y, e) => {
     if (!st) return;
+    if (S.drag) { st = null; return; } // 일정 끌어서 옮기는 중엔 화면 넘기기 안 함
     st.dx = x - st.x; st.dy = y - st.y;
     if (!st.axis && Math.hypot(st.dx, st.dy) > 10) st.axis = Math.abs(st.dx) > Math.abs(st.dy) * 1.2 ? 'x' : 'y';
     if (st.axis === want) {
@@ -3113,6 +3221,7 @@ async function init() {
   onBackButton(goBack);
   setupWebBack();
   setupStatusFold();
+  setupRowDrag();
   // 웹앱: 인터넷 없이도 열리게 화면 파일 저장 (안드로이드 앱은 파일이 이미 들어 있음)
   if (!isNative && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   // 인터넷이 다시 되면 못 받은 경로를 이어서 받음
