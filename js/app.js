@@ -1,14 +1,15 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610211616';
-import { arrivalGuide } from './guides.js?v=202610211616';
+import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610221109';
+import { arrivalGuide } from './guides.js?v=202610221109';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610211616';
-import { createMap } from './map.js?v=202610211616';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610211616';
-import { PROXY_URL } from './config.js?v=202610211616';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp } from './device.js?v=202610211616';
-import { saveFile, getFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610211616';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610211616';
+} from './schedule.js?v=202610221109';
+import { createMap } from './map.js?v=202610221109';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610221109';
+import { PROXY_URL } from './config.js?v=202610221109';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610221109';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610221109';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610221109';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610221109';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -624,6 +625,337 @@ function setupRowDrag() {
   tl.addEventListener('contextmenu', e => { if (S.drag || press) e.preventDefault(); });
 }
 
+// ==================== ⭐ 즐겨찾기 · 📸 추억 ====================
+S.favs = store.get('tg.favs', []);   // [{ id, place, address, lat, lng, cat, added }]
+S.mems = store.get('tg.mems', {});   // "날짜|장소" → { place, lat, lng, date, arr, dep, note, heart, photos[] } (일정과 따로 보관)
+const saveFavs = () => store.set('tg.favs', S.favs);
+const saveMems = () => store.set('tg.mems', S.mems);
+
+// 진행 기록에서 다녀온 곳을 추억으로 옮겨 담음 (도착할 때마다, 앱 켤 때)
+function syncMemories() {
+  const before = JSON.stringify(S.mems);
+  S.mems = collectVisits(S.plan, S.progress, S.mems).mems;
+  if (JSON.stringify(S.mems) !== before) saveMems();
+}
+
+// 오늘 일정이 있는 곳(없으면 내 위치) 기준으로 가까운 순
+function areaCenter() {
+  const it = curDay()?.items.find(hasPos);
+  return it || (S.pos ? { lat: S.pos.lat, lng: S.pos.lng } : null);
+}
+
+function toggleFav(p, hint = '') {
+  const place = p.place || p.name, ex = findFav(S.favs, { ...p, place });
+  if (ex) {
+    S.favs = S.favs.filter(f => f !== ex); saveFavs();
+    toast(`☆ ${ex.place} 즐겨찾기에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(ex); saveFavs(); rerenderKeep(); } });
+  } else {
+    if (!hasPos(p)) { toast('위치를 모르는 곳은 즐겨찾기할 수 없어요'); return; }
+    const f = { id: newId(), place, address: p.address || '', lat: p.lat, lng: p.lng, cat: guessCat(place, hint), added: Date.now() };
+    S.favs.push(f); saveFavs();
+    const c = catOf(f.cat);
+    toast(`⭐ ${place} 저장 · ${c.icon} ${c.label}`);
+  }
+  rerenderKeep();
+}
+// 즐겨찾기를 바꾼 뒤 보이는 화면(시트·상세·서랍)을 다시 그림
+function rerenderKeep() {
+  if (S.sheet) renderSheet();
+  if (topLayer() === 'detail') renderDetail();
+  if (S.tray) renderTray();
+}
+const favStar = p => (findFav(S.favs, { ...p, place: p.place || p.name }) ? '★' : '☆');
+
+function keepHtml(sh) {
+  const mems = memList(S.mems);
+  const tabs = `<div class="seg"><button class="${sh.tab === 'fav' ? 'on' : ''}" data-act="keepTab" data-tab="fav">⭐ 즐겨찾기 ${S.favs.length || ''}</button><button class="${sh.tab === 'mem' ? 'on' : ''}" data-act="keepTab" data-tab="mem">📸 추억 ${mems.length || ''}</button></div>`;
+  return `<div class="sheet-head"><div><div class="st-label">보관함</div><b>${sh.tab === 'fav' ? '⭐ 가고 싶은 곳' : '📸 다녀온 곳'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    ${tabs}${sh.tab === 'fav' ? favBody(sh) : memBody(mems)}`;
+}
+
+function favBody(sh) {
+  const c0 = areaCenter();
+  const counts = {};
+  S.favs.forEach(f => (counts[f.cat] = (counts[f.cat] || 0) + 1));
+  const cats = `<div class="chips fav-cats"><button class="chip-btn ${sh.cat === 'all' ? 'on' : ''}" data-act="favCat" data-cat="all">전체 ${S.favs.length}</button>${FAV_CATS.filter(c => counts[c.id]).map(c =>
+    `<button class="chip-btn ${sh.cat === c.id ? 'on' : ''}" data-act="favCat" data-cat="${c.id}">${c.icon} ${c.label} ${counts[c.id]}</button>`).join('')}</div>`;
+  const list = S.favs.filter(f => sh.cat === 'all' || f.cat === sh.cat)
+    .map(f => ({ f, d: c0 ? haversine(c0, f) : null })).sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
+  const card = ({ f, d }) => {
+    const c = catOf(f.cat);
+    return `<div class="fav-card">
+      <div class="fav-top"><span class="fav-ic">${c.icon}</span><div class="fav-name"><b>${esc(f.place)}</b><div class="muted small">${[f.address, d != null && fmtDist(d)].filter(Boolean).map(esc).join(' · ')}</div></div></div>
+      ${sh.catEdit === f.id ? `<div class="chips">${FAV_CATS.map(x => `<button class="chip-btn ${x.id === f.cat ? 'on' : ''}" data-act="favSetCat" data-id="${f.id}" data-cat="${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>` : ''}
+      <div class="chips"><button class="chip-btn on" data-act="favAdd" data-id="${f.id}">＋ 일정에 넣기</button><button class="chip-btn" data-act="favMap" data-id="${f.id}">🗺️ 지도</button><button class="chip-btn" data-act="favCatEdit" data-id="${f.id}">🏷 ${c.label}</button><button class="chip-btn" data-act="favDel" data-id="${f.id}" aria-label="즐겨찾기 빼기">🗑</button></div>
+    </div>`;
+  };
+  // 가까운 곳(50km 안)과 다른 도시를 나눠서
+  const isHere = x => x.d != null && x.d < 50000;
+  const here = list.filter(isHere), far = list.filter(x => !isHere(x));
+  const res = Array.isArray(sh.res)
+    ? sh.res.map((r, j) => `<div class="fav-res"><div><b>${esc(r.name)}</b><div class="muted small">${esc(r.address || r.kind || '')}</div></div><button class="chip-btn ${favStar(r) === '★' ? 'on' : ''}" data-act="favResAdd" data-j="${j}">${favStar(r)} 저장</button></div>`).join('') || '<div class="muted small pad">찾지 못했어요. 영어 이름으로도 찾아보세요.</div>'
+    : sh.res === 'loading' ? '<div class="muted small pad">찾는 중…</div>' : '';
+  return `<div class="fav-search"><input id="favQ" placeholder="가고 싶은 곳 검색해서 저장" value="${esc(sh.q || '')}"><button class="chip-btn on" data-act="favSearch">찾기</button></div>${res}
+    ${S.favs.length ? `${cats}
+      <button class="tray-open" data-act="favTray">🖐 시간표에 끌어다 놓기 <span class="muted small">· 꾹 눌러 끌어서 원하는 자리·날짜에</span></button>
+      ${here.length ? `<div class="fav-group">📍 이 근처</div>${here.map(card).join('')}` : ''}
+      ${far.length ? `${here.length ? '<div class="fav-group">🌏 다른 곳</div>' : ''}${far.map(card).join('')}` : ''}`
+    : '<div class="muted pad">아직 즐겨찾기가 없어요.<br>장소 상세 화면이나 추천 결과의 <b>☆</b>를 누르거나, 위에서 검색해서 저장하세요.</div>'}`;
+}
+
+async function favSearch() {
+  const sh = S.sheet, q = $('#favQ')?.value.trim();
+  if (!q) return;
+  sh.q = q; sh.res = 'loading'; renderSheet();
+  let list = [];
+  const c0 = areaCenter();
+  try {
+    if (gkey()) list = await searchPlaces(gkey(), q, c0);
+    if (!list.length) list = await searchPlacesFree(q, c0);
+  } catch { /* 결과 없음으로 안내 */ }
+  if (S.sheet !== sh) return;
+  sh.res = list.slice(0, 5); renderSheet();
+}
+
+function memBody(mems) {
+  const days = [...new Set(mems.map(m => m.date))], hearts = mems.filter(m => m.heart).length;
+  const tools = `<div class="chips mem-tools"><button class="chip-btn on" data-act="memMap">🗺️ 추억 지도</button><button class="chip-btn" data-act="memExport">⬇ 백업 저장</button><button class="chip-btn" data-act="memImport">⬆ 백업 불러오기</button></div>`;
+  if (!mems.length) return `<div class="muted pad">아직 다녀온 곳이 없어요.<br>일정 장소에 <b>도착</b>하면 날짜·시간과 함께 자동으로 여기 모여요. 일정을 지우거나 초기화해도 추억은 남아요.</div>${tools}`;
+  const row = m => {
+    const t = m.arr ? `${clockAt(m.arr, m.date)} 도착${m.dep ? ` · ${fmtDur((m.dep - m.arr) / 60000)} 머묾` : ''}` : '다녀옴';
+    const k = esc(m.key);
+    return `<div class="mem-card">
+      <div class="mem-top"><button class="mem-heart" data-act="memHeart" data-key="${k}" aria-label="하트">${m.heart ? '❤️' : '🤍'}</button>
+        <div class="mem-name"><b>${esc(m.place)}</b><div class="muted small">${t}</div></div></div>
+      ${m.note ? `<div class="mem-note">${esc(m.note)}</div>` : ''}
+      ${m.photos?.length ? `<div class="mem-photos" data-mph="${k}">${m.photos.map((id, n) => `<button class="mem-ph" data-act="memView" data-key="${k}" data-k="${n}"></button>`).join('')}</div>` : ''}
+      <div class="chips"><button class="chip-btn" data-act="memNote" data-key="${k}">✏️ ${m.note ? '메모 고치기' : '한 줄 메모'}</button><button class="chip-btn" data-act="memPhoto" data-key="${k}">📷 사진</button><button class="chip-btn" data-act="memFocus" data-key="${k}">🗺️ 지도</button><button class="chip-btn" data-act="memDel" data-key="${k}" aria-label="추억에서 빼기">🗑</button></div>
+    </div>`;
+  };
+  return `<div class="mem-sum">${mems.length}곳 · ${days.length}일${hearts ? ` · ❤️ ${hearts}` : ''}</div>${tools}
+    ${days.map(dt => `<div class="fav-group">${dayLabel(dt)}</div>${mems.filter(m => m.date === dt).map(row).join('')}`).join('')}
+    <div class="muted small pad">추억은 이 휴대폰에만 저장돼요. 가끔 <b>백업 저장</b>으로 파일을 남겨 두세요 (사진 포함).</div>`;
+}
+
+// 추억 사진 작은 그림 채우기
+async function fillMemPhotos() {
+  for (const box of document.querySelectorAll('[data-mph]')) {
+    const m = S.mems[box.dataset.mph];
+    for (const [k, id] of (m?.photos || []).entries()) {
+      const rec = await getFile(id).catch(() => null), el = box.querySelector(`[data-k="${k}"]`);
+      if (rec && el) el.style.backgroundImage = `url(${blobUrl(rec.blob)})`;
+    }
+  }
+}
+
+async function openMemPhoto(key, k) {
+  const m = S.mems[key], id = m?.photos?.[k];
+  if (!id) return;
+  S.viewer = { mem: key, k };
+  const el = $('#viewer'), n = m.photos.length, ek = esc(key);
+  el.hidden = false;
+  el.innerHTML = `<div class="vw-top"><button class="vw-btn" data-act="closeViewer" aria-label="닫기">✕</button>
+      <div class="vw-title"><b>${esc(m.place)}</b><span>${dayLabel(m.date)}${n > 1 ? ` · ${k + 1}/${n}` : ''}</span></div>
+      <button class="vw-btn" data-act="memPhotoDel" aria-label="사진 삭제">🗑</button></div>
+    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>
+    ${n > 1 ? `<button class="vw-nav prev" data-act="memView" data-key="${ek}" data-k="${k - 1}" ${k === 0 ? 'disabled' : ''}>‹</button><button class="vw-nav next" data-act="memView" data-key="${ek}" data-k="${k + 1}" ${k === n - 1 ? 'disabled' : ''}>›</button>` : ''}`;
+  const rec = await getFile(id).catch(() => null);
+  const body = el.querySelector('.vw-body');
+  if (S.viewer?.mem !== key || S.viewer.k !== k || !body) return;
+  body.innerHTML = rec ? `<img src="${blobUrl(rec.blob)}" alt="">` : '<div class="muted pad">사진을 찾을 수 없어요</div>';
+}
+
+function hiddenInput(accept, multiple, onFiles) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = accept; inp.multiple = multiple; inp.hidden = true;
+  inp.addEventListener('change', () => { const files = [...inp.files]; inp.value = ''; if (files.length) onFiles(files); });
+  document.body.append(inp);
+  return inp;
+}
+const memInput = hiddenInput('image/*', true, async files => {
+  const m = S.mems[S.memPhotoFor];
+  if (!m) return;
+  for (const f of files) { try { m.photos = [...(m.photos || []), (await saveFile(f)).id]; } catch (e) { toast(`사진 저장 실패: ${e.message}`, 4000); } }
+  saveMems(); rerenderKeep(); toast(`📷 ${m.place}에 사진을 넣었어요`);
+});
+
+// ---------- 백업: 추억(사진 포함)·즐겨찾기를 파일 하나로 ----------
+const toDataUrl = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+async function exportKeep() {
+  toast('백업 파일을 만드는 중…');
+  const photos = {};
+  for (const m of Object.values(S.mems)) for (const id of m.photos || []) {
+    const rec = await getFile(id).catch(() => null);
+    if (rec) photos[id] = { name: rec.name, type: rec.type, data: await toDataUrl(rec.blob) };
+  }
+  const text = JSON.stringify({ app: 'tripflip', kind: 'keep', v: 1, at: Date.now(), mems: S.mems, favs: S.favs, photos });
+  const how = await saveOrShare(`트립플립_추억_${todayStr()}.json`, text).catch(e => { toast(`저장하지 못했어요: ${e.message}`, 5000); return null; });
+  if (how === 'saved') toast('📁 휴대폰 "문서" 폴더에 저장했어요. 카톡·드라이브로도 보내 두세요', 5000);
+  else if (how === 'downloaded') toast('⬇ 다운로드 폴더에 저장했어요', 4000);
+  else if (how === 'shared') toast('백업 파일을 보냈어요');
+}
+const importInput = hiddenInput('.json,application/json', false, async ([f]) => {
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.app !== 'tripflip' || data.kind !== 'keep') throw new Error('트립플립 추억 백업 파일이 아니에요');
+    for (const [id, p] of Object.entries(data.photos || {})) {
+      if (await getFile(id).catch(() => null)) continue;
+      await putFile({ id, name: p.name, type: p.type }, await (await fetch(p.data)).blob());
+    }
+    const nm = memList(data.mems).length, nf = (data.favs || []).length;
+    ({ mems: S.mems, favs: S.favs } = mergeBackup({ mems: S.mems, favs: S.favs }, data));
+    saveMems(); saveFavs(); rerenderKeep();
+    toast(`⬆ 추억 ${nm}곳, 즐겨찾기 ${nf}곳을 불러왔어요`, 4000);
+  } catch (e) { toast(`불러오지 못했어요: ${e.message}`, 5000); }
+});
+
+// ---------- 🗺️ 추억 지도: 다녀온 곳을 날짜별 색과 동선으로 ----------
+function openMemMap(focusKey) {
+  const list = memList(S.mems).filter(hasPos);
+  if (!list.length) { toast('아직 다녀온 곳이 없어요'); return; }
+  closeMemMap();
+  const days = [...new Set(list.map(m => m.date))];
+  const color = dt => PALETTE[days.indexOf(dt) % PALETTE.length];
+  const el = document.createElement('div');
+  el.id = 'memMap'; el.className = 'memmap';
+  el.innerHTML = `<div class="mm-top"><button class="vw-btn" data-act="memMapClose" aria-label="닫기">✕</button>
+      <div class="vw-title"><b>📸 추억 지도</b><span>${list.length}곳 · ${days.length}일</span></div><button class="vw-btn" data-act="memMapDay" data-date="" aria-label="전체 보기">⤢</button></div>
+    <div class="mm-days">${days.map(dt => `<button class="chip-btn" data-act="memMapDay" data-date="${dt}"><i style="background:${color(dt)}"></i>${dayLabel(dt)}</button>`).join('')}</div>
+    <div class="mm-map"></div>`;
+  document.body.append(el);
+  const map = L.map(el.querySelector('.mm-map'), { zoomControl: false });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  for (const dt of days) {
+    const pts = list.filter(m => m.date === dt);
+    if (pts.length > 1) L.polyline(pts.map(m => [m.lat, m.lng]), { color: color(dt), weight: 3, opacity: 0.55, dashArray: '4 7' }).addTo(map);
+  }
+  const markers = {};
+  for (const m of list) {
+    const icon = L.divIcon({ className: '', html: `<div class="mm-pin" style="background:${color(m.date)}">${m.heart ? '❤' : ''}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+    const t = m.arr ? clockAt(m.arr, m.date) : '';
+    markers[m.key] = L.marker([m.lat, m.lng], { icon, zIndexOffset: m.heart ? 500 : 0 }).addTo(map).bindPopup(
+      `<div class="mm-pop"><b>${esc(m.place)}</b><div class="muted small">${dayLabel(m.date)}${t ? ` · ${t}` : ''}</div>${m.note ? `<div>${esc(m.note)}</div>` : ''}${m.photos?.length ? `<div class="mm-ph" data-ph="${esc(m.photos[0])}"></div>` : ''}</div>`);
+  }
+  map.on('popupopen', async e => {
+    const ph = e.popup.getElement()?.querySelector('[data-ph]');
+    const rec = ph && await getFile(ph.dataset.ph).catch(() => null);
+    if (rec) { ph.style.backgroundImage = `url(${blobUrl(rec.blob)})`; ph.classList.add('on'); }
+  });
+  S.memMap = { map, el, list, markers };
+  const focus = focusKey && markers[focusKey];
+  if (focus) { map.setView(focus.getLatLng(), 16); focus.openPopup(); }
+  else memMapFit('');
+}
+function memMapFit(date) {
+  const mm = S.memMap;
+  if (!mm) return;
+  const pts = mm.list.filter(m => !date || m.date === date).map(m => [m.lat, m.lng]);
+  if (pts.length === 1) mm.map.setView(pts[0], 15);
+  else if (pts.length) mm.map.fitBounds(pts, { padding: [40, 40] });
+  mm.el.querySelectorAll('.mm-days .chip-btn').forEach(b => b.classList.toggle('on', b.dataset.date === date));
+}
+function closeMemMap() {
+  if (!S.memMap) return;
+  S.memMap.map.remove(); S.memMap.el.remove(); S.memMap = null;
+}
+
+// ---------- 🖐 즐겨찾기 서랍: 꾹 눌러 끌어서 시간표 자리나 날짜 탭에 놓기 ----------
+S.tray = null; // { cat }
+function toggleTray(on = !S.tray) {
+  S.tray = on ? { cat: 'all' } : null;
+  document.body.classList.toggle('tray-open', !!S.tray);
+  renderTray();
+}
+function renderTray() {
+  let el = $('#favTray');
+  if (!S.tray) { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'favTray'; document.body.append(el); setupTrayDrag(el); }
+  const c0 = areaCenter();
+  const list = S.favs.filter(f => S.tray.cat === 'all' || f.cat === S.tray.cat)
+    .sort((a, b) => (c0 ? haversine(c0, a) - haversine(c0, b) : 0));
+  const used = new Set(S.favs.map(f => f.cat));
+  el.innerHTML = `<div class="ft-head"><b>⭐ 꾹 눌러 끌어서 시간표 자리나 위 날짜에 놓으세요</b><button class="x" data-act="favTray" aria-label="닫기">✕</button></div>
+    <div class="ft-cats"><button class="${S.tray.cat === 'all' ? 'on' : ''}" data-act="trayCat" data-cat="all">전체</button>${FAV_CATS.filter(c => used.has(c.id)).map(c => `<button class="${S.tray.cat === c.id ? 'on' : ''}" data-act="trayCat" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join('')}</div>
+    <div class="ft-list">${list.map(f => `<div class="ft-card" data-fid="${f.id}"><span>${catOf(f.cat).icon}</span><b>${esc(f.place)}</b>${c0 ? `<small>${fmtDist(haversine(c0, f))}</small>` : ''}</div>`).join('') || '<div class="muted small pad">즐겨찾기가 없어요. 위의 ⭐ 보관함에서 먼저 저장하세요.</div>'}</div>`;
+}
+
+function setupTrayDrag(tray) {
+  let press = null, g = null, raf = 0;
+  const clearMarks = () => document.querySelectorAll('.row.drop-before, .row.drop-after, #dayTabs .drop-tab').forEach(e => e.classList.remove('drop-before', 'drop-after', 'drop-tab'));
+  const scroller = $('#listView');
+  // 위·아래 끝으로 끌면 시간표가 따라 스크롤
+  const autoScroll = () => {
+    if (!g) return;
+    const top = scroller.getBoundingClientRect().top, bottom = tray.getBoundingClientRect().top;
+    if (g.y > top && g.y < top + 60) scroller.scrollBy(0, -10); else if (g.y > bottom - 50 && g.y < bottom) scroller.scrollBy(0, 10);
+    raf = requestAnimationFrame(autoScroll);
+  };
+  // 놓을 곳: 위 날짜 탭(그 날) 또는 시간표 두 줄 사이(그 자리)
+  const findTarget = (x, y) => {
+    const tab = document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date]'));
+    if (tab) return { date: tab.dataset.date, tab };
+    if (y >= tray.getBoundingClientRect().top || topLayer() !== 'list') return null;
+    const tl = $('#timeline').getBoundingClientRect();
+    if (y < tl.top || y > tl.bottom) return null; // 시간표 밖(위 상태 카드 등)에 놓으면 취소
+    const rows = [...document.querySelectorAll('#timeline .row[data-i]')];
+    if (!rows.length) return null;
+    let k = rows.findIndex(r => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
+    if (k === 0) k = 1; // 첫 줄(출발지) 앞에는 넣지 않음
+    const after = k < 0 || !rows[k];
+    return { index: after ? rows.length : +rows[k].dataset.i, row: after ? rows.at(-1) : rows[k], after };
+  };
+  const moveGhost = (x, y) => {
+    g.x = x; g.y = y;
+    g.ghost.style.transform = `translate(${x - 60}px, ${y - 46}px)`;
+    clearMarks();
+    g.target = findTarget(x, y);
+    if (g.target?.tab) g.target.tab.classList.add('drop-tab');
+    else if (g.target?.row) g.target.row.classList.add(g.target.after ? 'drop-after' : 'drop-before');
+  };
+  tray.addEventListener('pointerdown', e => {
+    const card = e.target.closest('.ft-card');
+    if (!card || g) return;
+    const fav = S.favs.find(f => f.id === card.dataset.fid);
+    press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      press = null;
+      const ghost = card.cloneNode(true);
+      ghost.classList.add('ft-ghost');
+      document.body.append(ghost);
+      g = { fav, ghost, card, x: e.clientX, y: e.clientY, target: null };
+      card.classList.add('lifted');
+      try { card.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
+      navigator.vibrate?.(30);
+      moveGhost(e.clientX, e.clientY);
+      raf = requestAnimationFrame(autoScroll);
+    }, 350) };
+  });
+  tray.addEventListener('pointermove', e => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; } // 그냥 옆으로 넘기기
+    if (g) moveGhost(e.clientX, e.clientY);
+  });
+  const end = () => {
+    if (press) { clearTimeout(press.timer); press = null; }
+    if (!g) return;
+    const { fav, ghost, card, target } = g;
+    g = null; cancelAnimationFrame(raf);
+    ghost.remove(); card.classList.remove('lifted'); clearMarks();
+    S.dragJustEnded = Date.now();
+    if (!target) return;
+    const draft = favDraft(fav);
+    if (target.date) {
+      if (target.date !== S.selected) selectDay(target.date, true);
+      openEditor(null, null, { draft, autoIndex: true });
+    } else openEditor(target.index, null, { draft });
+  };
+  tray.addEventListener('pointerup', end);
+  tray.addEventListener('pointercancel', end);
+  tray.addEventListener('touchmove', e => { if (g && e.cancelable) e.preventDefault(); }, { passive: false });
+  tray.addEventListener('contextmenu', e => { if (g || press) e.preventDefault(); });
+}
+
+// 즐겨찾기 → 새 일정 초안 (시간은 비워 둠: 예약이면 수정 창에서 시간을 정하면 됨)
+const favDraft = f => ({ ...blankPlace(), place: f.place, address: f.address || '', lat: f.lat, lng: f.lng, time: null, stay: 60, mode: 'TRANSIT', memo: '', notes: [] });
+
 // ---------- 아직 여기 있어요 · 다시 맞추기 · 쉬기 ----------
 S.rest = store.get('tg.rest', null); // { date, until(ms) } 또는 { date, day: true }
 const saveRest = () => store.set('tg.rest', S.rest);
@@ -992,6 +1324,7 @@ function renderDetail() {
     </div>
     <div class="dt-card dt-acts">
       <button data-act="editPlace" data-i="${i}">✏️ 수정</button>
+      ${hasPos(it) ? `<button data-act="favToggle" data-i="${i}">${favStar(it) === '★' ? '★ 즐겨찾기됨' : '☆ 즐겨찾기'}</button>` : ''}
       <button data-act="addPlace" data-i="${i + 1}">＋ 이 장소 뒤에 일정 넣기</button>
       ${i > 0 ? `<button data-act="moveUp" data-i="${i}">↑ 순서 앞으로</button>` : ''}
       ${i < n - 1 ? `<button data-act="moveDown" data-i="${i}">↓ 순서 뒤로</button>` : ''}
@@ -1090,6 +1423,7 @@ function closeViewer() {
   $('#viewer').innerHTML = '';
   freeUrls();
   if (topLayer() === 'detail') fillAttachments(S.detail);
+  if (S.sheet?.type === 'keep') renderSheet(); // 작은 사진을 다시 채움
 }
 
 async function deleteAttachment() {
@@ -1307,8 +1641,10 @@ const canGoBack = () => !$('#alarm').hidden || !!S.viewer || S.pick || !!S.sheet
 function goBack() {
   if (!$('#alarm').hidden) { dismissAlarm(); return; }
   if (S.viewer) { closeViewer(); return; }
+  if (S.memMap) { closeMemMap(); return; }
   if (S.pick) { finishPick(); return; }
   if (S.sheet) { closeSheet(); return; }
+  if (S.tray) { toggleTray(false); return; }
   if (S.stack.length > 1) { popLayer(); return; }
   if (S.dayBack.length) { selectDay(S.dayBack.pop(), true, true); return; }
   if (!isNative) return;
@@ -1377,6 +1713,7 @@ function toast(msg, ms = 3000, undo = null) {
 // ---------- 도착/출발 기록 ----------
 function changed() {
   saveProgress();
+  syncMemories(); // 도착하면 추억에도 담아 둠 (일정·기록을 지워도 남게)
   recompute();
   renderAll(false);
   scheduleAlarms();
@@ -1632,7 +1969,8 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml }[sh.type](sh);
+  if (sh.type === 'keep') fillMemPhotos();
 }
 
 // ---------- 일정을 넣거나 바꿀 때 미리 계산해서 예약 지각·밀림 알려주기 ----------
@@ -1795,7 +2133,7 @@ function suggestHtml(sh) {
   else body = sh.results.map((r, j) => `<div class="place-card">
       <div class="place-top"><div class="place-name">${esc(r.name)}</div>${r.rating ? `<div class="place-rate">★ ${r.rating.toFixed(1)} <span class="muted small">(${r.reviews.toLocaleString()})</span></div>` : ''}</div>
       <div class="place-meta">${[r.kind, `🚶 ${fmtDist(r.d)} · 약 ${fmtDur(estimateMin(r.d, 'WALK'))}`, r.hours].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="chips"><button class="chip-btn on" data-act="suggestAdd" data-j="${j}">＋ 일정에 넣기</button><button class="chip-btn" data-act="suggestMap" data-j="${j}">🗺️ 지도</button><button class="chip-btn" data-act="suggestNav" data-j="${j}">길안내</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="suggestAdd" data-j="${j}">＋ 일정에 넣기</button><button class="chip-btn" data-act="suggestMap" data-j="${j}">🗺️ 지도</button><button class="chip-btn" data-act="suggestNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="즐겨찾기">${favStar(r)}</button></div>
     </div>`).join('');
   const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${sh.slot.web || (sh.slot.type === 'brunch' ? 'brunch cafe' : 'restaurant')} near ${sh.center.lat},${sh.center.lng}`)}`;
   const when = sh.slot.when || `${fmtClock(sh.slot.center)} 무렵`;
@@ -1875,7 +2213,7 @@ function nearHtml(sh) {
   else body = sh.results.map((r, j) => `<div class="place-card">
       <div class="place-top"><div class="place-name">${esc(r.name)}</div><div class="place-rate">${fmtDist(r.d)}</div></div>
       <div class="place-meta">${[r.kind, `🚶 약 ${fmtDur(estimateMin(r.d, 'WALK'))}`, r.hours].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="chips"><button class="chip-btn on" data-act="nearNav" data-j="${j}">길안내</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="nearNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="즐겨찾기">${favStar(r)}</button></div>
     </div>`).join('');
   const q = { conv: 'convenience store', pharmacy: 'pharmacy', hospital: 'hospital' }[sh.near];
   const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sh.me ? `${q} near ${sh.me.lat},${sh.me.lng}` : q)}`;
@@ -1944,7 +2282,7 @@ function poiHtml(sh) {
       <div class="poi-name">${esc(r.name)}</div>
       ${r.address ? `<div class="muted small">${esc(r.address)}</div>` : ''}
       <div class="small poi-dist">${walk}${me}</div>
-      <div class="chips"><button class="chip-btn on" data-act="poiMap" data-k="${k}">🗺️ 지도에서 보기</button><button class="chip-btn" data-act="poiNav" data-k="${k}">길안내</button><button class="chip-btn" data-act="poiAdd" data-k="${k}">＋ 일정에 넣기</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="poiMap" data-k="${k}">🗺️ 지도에서 보기</button><button class="chip-btn" data-act="poiNav" data-k="${k}">길안내</button><button class="chip-btn" data-act="poiAdd" data-k="${k}">＋ 일정에 넣기</button><button class="chip-btn" data-act="favRes" data-j="${k}" aria-label="즐겨찾기">${favStar(r)}</button></div>
     </div>`;
   }).join('');
   return `<div class="sheet-head"><div><div class="st-label">주변 추천 · ${esc(it.place)} 근처</div><b>${esc(sh.name)}</b></div><button class="x" data-act="closeSheet">✕</button></div>
@@ -2012,15 +2350,19 @@ function prevHotel(date) {
 
 const roundUp10 = min => Math.ceil(min / 10) * 10;
 
-function openEditor(index, id) {
+// opt.draft: 미리 채울 장소(즐겨찾기 등), opt.autoIndex: 저장할 때 시간 순서에 맞는 자리로
+function openEditor(index, id, opt = {}) {
   const d = curDay(), date = S.selected;
+  index ??= d?.items.length || 0;
+  if (opt.autoIndex && d?.items.length) index = insertIndexFor(d, opt.draft); // 제목의 "n번째"도 실제 들어갈 자리로
   const it = id ? d.items.find(x => x.id === id) : null;
   const prevMode = d?.items[index - 1]?.mode;
   // 빈 날에 처음 넣는 일정: 도착지와 출발지를 한 화면에서 같이 정함
   const trip = !it && !(d?.items.length);
   const sh = {
     type: 'edit', date, index, id: it?.id || null, results: null, query: '', trip,
-    draft: it ? { ...it, files: [...(it.files || [])] } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
+    autoIndex: !!opt.autoIndex,
+    draft: opt.draft ? { ...opt.draft } : it ? { ...it, files: [...(it.files || [])] } : { ...blankPlace(), time: null, stay: trip ? 60 : 60, mode: prevMode || 'TRANSIT', memo: '', notes: [] },
   };
   if (trip) {
     sh.origin = null; // 비워 두면 현재 위치에서 출발
@@ -2186,11 +2528,11 @@ function editHtml(sh) {
     <div class="field">이동 방법<div class="chips">${modes}</div></div>`;
   } else {
     // 다른 날로 옮기기: 날짜를 고르면 저장할 때 그 날로 옮겨짐 (시간이 있으면 그 시간 순서에 맞게 끼워 넣음)
-    if (sh.id) {
+    if (!sh.trip) {
       const target = sh.moveTo || sh.date;
-      html += `<div class="field">날짜 <span class="muted small">(다른 날로 옮기려면 고르세요)</span><div class="chips date-chips">${S.plan.days.map(x =>
+      html += `<div class="field">날짜 <span class="muted small">(${sh.id ? '다른 날로 옮기려면 고르세요' : '넣을 날'})</span><div class="chips date-chips">${S.plan.days.map(x =>
         `<button class="chip-btn ${x.date === target ? 'on' : ''}" data-act="edDate" data-date="${x.date}">${dayLabel(x.date)}</button>`).join('')}</div>
-        ${target !== sh.date ? `<div class="muted small">저장하면 <b>${dayLabel(target)}</b>로 옮겨져요</div>` : ''}</div>`;
+        ${target !== sh.date ? `<div class="muted small">저장하면 <b>${dayLabel(target)}</b>${sh.id ? '로 옮겨져요' : '에 넣어요 (시간 순서에 맞는 자리로)'}</div>` : ''}</div>`;
     }
     html += legInfo + `<div class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}
       ${timeField('edTime', dr.time, { placeholder: isStart ? '출발 시간 고르기' : '정해진 시간 없음 (자동)', clearable: !isStart })}</div>
@@ -2268,12 +2610,14 @@ function edSave() {
   if (!dr.place) { toast(sh.trip ? '도착지를 골라 주세요' : '장소 이름을 적어 주세요'); return; }
   if (sh.trip && !originOf(sh)) { toast('내 위치를 아직 못 찾았어요. 출발지를 검색해서 골라 주세요', 4000); return; }
   if (!hasPos(dr) && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return;
+  if (!sh.id && !sh.trip && sh.moveTo && sh.moveTo !== sh.date) { sh.date = sh.moveTo; sh.autoIndex = true; } // 새 일정을 다른 날에
   const d = ensureDay(sh.date);
   const item = {
     id: sh.id || newId(), place: dr.place, address: dr.address || '', lat: dr.lat ?? null, lng: dr.lng ?? null,
     time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [], files: dr.files || [],
   };
   if (dr.auto) item.auto = true;
+  if (!sh.id && !sh.trip && sh.autoIndex) sh.index = insertIndexFor(d, item); // 날짜만 정했으면 시간 순서에 맞는 자리로
   if (sh.id && sh.moveTo && sh.moveTo !== sh.date) {
     sh.saved = true;
     (sh.removed || []).forEach(id => deleteFile(id).catch(() => {}));
@@ -2303,6 +2647,7 @@ function edSave() {
   } else if (sh.id) d.items[d.items.findIndex(x => x.id === sh.id)] = item;
   else d.items.splice(sh.index, 0, item);
   savePlan();
+  if (sh.date !== S.selected) selectDay(sh.date, true);
   recompute();
   closeSheet();
   renderAll(true);
@@ -3048,6 +3393,34 @@ async function act(name, el) {
       break;
     case 'resetProgress': resetDay(d); break;
     case 'doneUpTo': closeSheet(); markDoneUpTo(d, i); break;
+    case 'keep': S.sheet = { type: 'keep', tab: S.keepTab || 'fav', cat: 'all' }; S.routeView = null; renderSheet(); break;
+    case 'keepTab': S.keepTab = S.sheet.tab = el.dataset.tab; renderSheet(); break;
+    case 'favCat': S.sheet.cat = el.dataset.cat; renderSheet(); break;
+    case 'favSearch': favSearch(); break;
+    case 'favResAdd': { const r = S.sheet.res?.[+el.dataset.j]; if (r) toggleFav(r, r.kind); break; }
+    case 'favRes': { const sh = S.sheet, r = sh?.results?.[+el.dataset.j]; if (r) toggleFav(r, [sh.slot?.what, sh.near && NEAR_ME[sh.near]?.label, r.kind].filter(Boolean).join(' ')); break; }
+    case 'favToggle': toggleFav(d.items[i], d.items[i].memo); break;
+    case 'favAdd': { const f = S.favs.find(x => x.id === el.dataset.id); if (!f) break; closeSheet(); openEditor(null, null, { draft: favDraft(f), autoIndex: true }); break; }
+    case 'favMap': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) openExternal(placeUrl(f)); break; }
+    case 'favCatEdit': S.sheet.catEdit = S.sheet.catEdit === el.dataset.id ? null : el.dataset.id; renderSheet(); break;
+    case 'favSetCat': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) { f.cat = el.dataset.cat; saveFavs(); } S.sheet.catEdit = null; rerenderKeep(); break; }
+    case 'favDel': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) toggleFav(f); break; }
+    case 'favTray': if (S.sheet) closeSheet(); toggleTray(); break;
+    case 'trayCat': S.tray.cat = el.dataset.cat; renderTray(); break;
+    case 'memHeart': { const m = S.mems[el.dataset.key]; if (m) { m.heart = !m.heart; saveMems(); renderSheet(); } break; }
+    case 'memNote': { const m = S.mems[el.dataset.key]; if (!m) break; const t = prompt(`${m.place} · 한 줄 메모`, m.note || ''); if (t != null) { m.note = t.trim(); saveMems(); renderSheet(); } break; }
+    case 'memPhoto': S.memPhotoFor = el.dataset.key; memInput.click(); break;
+    case 'memView': openMemPhoto(el.dataset.key, +el.dataset.k); break;
+    case 'memPhotoDel': { const v = S.viewer, m = v?.mem && S.mems[v.mem]; if (!m || !confirm('이 사진을 지울까요?')) break;
+      const [id] = m.photos.splice(v.k, 1); deleteFile(id).catch(() => {}); saveMems(); closeViewer(); break; }
+    case 'memDel': { const m = S.mems[el.dataset.key]; if (!m || !confirm(`"${m.place}"을(를) 추억에서 뺄까요? (사진·메모도 함께 지워져요)`)) break;
+      (m.photos || []).forEach(id => deleteFile(id).catch(() => {})); S.mems[m.key] = { key: m.key, gone: true }; saveMems(); renderSheet(); toast('추억에서 뺐어요'); break; }
+    case 'memMap': openMemMap(); break;
+    case 'memFocus': openMemMap(el.dataset.key); break;
+    case 'memMapClose': closeMemMap(); break;
+    case 'memMapDay': memMapFit(el.dataset.date); break;
+    case 'memExport': exportKeep(); break;
+    case 'memImport': importInput.click(); break;
     case 'progSheet': S.sheet = { type: 'prog' }; S.routeView = null; renderSheet(); break;
     case 'clearRoutes': S.legCache = {}; saveLegs(); recompute(); renderAll(false); prefetchLegs(); toast('경로를 다시 계산해요'); break;
     case 'deletePlan':
@@ -3342,6 +3715,7 @@ async function init() {
   Alarms.onFire = showAlarm;
   await Alarms.init();
   S.selected = pickInitialDay();
+  syncMemories(); // 지금까지의 도착 기록을 추억으로 (처음 켤 때 이번 여행 기록을 채움)
   recompute();
   renderAll(false);
   scrollToNow();

@@ -53,6 +53,11 @@ export async function getFile(id) {
   return tx('readonly', s => s.get(id));
 }
 
+/** 백업에서 되살릴 때: 원래 id 그대로 저장 */
+export async function putFile(meta, blob) {
+  await tx('readwrite', s => s.put({ ...meta, blob, created: Date.now() }));
+}
+
 export async function deleteFile(id) {
   return tx('readwrite', s => s.delete(id));
 }
@@ -63,7 +68,7 @@ export const isPdf = f => /pdf/i.test(f.type) || /\.pdf$/i.test(f.name);
 let pdfjs = null;
 export async function renderPdf(blob, container) {
   if (!pdfjs) {
-    pdfjs = await import('../lib/pdfjs/pdf.min.js?v=202610211616');
+    pdfjs = await import('../lib/pdfjs/pdf.min.js?v=202610221109');
     pdfjs.GlobalWorkerOptions.workerSrc = new URL('../lib/pdfjs/pdf.worker.min.js', import.meta.url).href;
   }
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;

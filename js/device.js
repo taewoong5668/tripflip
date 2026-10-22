@@ -137,3 +137,24 @@ export function openExternal(url) {
   if (isNative) window.location.href = url; // Capacitor가 외부 앱(구글맵)으로 넘김
   else window.open(url, '_blank', 'noopener');
 }
+
+// 파일 내보내기(백업): 앱에서는 휴대폰 "문서" 폴더에 저장한 뒤 공유 창(카톡·메일·드라이브)을 띄우고,
+// 브라우저에서는 공유 창(아이폰) 또는 바로 다운로드
+export async function saveOrShare(name, text, mime = 'application/json') {
+  const FS = isNative && plugin('Filesystem'), Sh = isNative && plugin('Share');
+  if (FS) {
+    const r = await FS.writeFile({ path: name, data: text, directory: 'DOCUMENTS', encoding: 'utf8', recursive: true })
+      .catch(() => FS.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' }));
+    if (Sh) await Sh.share({ title: name, files: [r.uri] }).catch(() => {});
+    return 'saved';
+  }
+  const file = new File([text], name, { type: mime });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return 'shared'; } catch (e) { if (e?.name === 'AbortError') return 'cancel'; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return 'downloaded';
+}
