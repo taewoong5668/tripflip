@@ -1,15 +1,15 @@
-import { readPlanFile, parsePlanText, isHotel, isFlight } from './parser.js?v=202610221109';
-import { arrivalGuide } from './guides.js?v=202610221109';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610240601';
+import { arrivalGuide } from './guides.js?v=202610240601';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610221109';
-import { createMap } from './map.js?v=202610221109';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, decodePolyline, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610221109';
-import { PROXY_URL } from './config.js?v=202610221109';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610221109';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610221109';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610221109';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610221109';
+} from './schedule.js?v=202610240601';
+import { createMap } from './map.js?v=202610240601';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610240601';
+import { PROXY_URL } from './config.js?v=202610240601';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610240601';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610240601';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610240601';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610240601';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -32,7 +32,7 @@ const S = {
   selected: null, followToday: true, lastToday: null,
   cur: { legs: [], sched: [] },
   pos: null, follow: false, map: null,
-  open: null, sheet: null, routeView: null,
+  sheet: null,
   pick: false,      // 지도에서 위치 고르는 중
   live: null,       // 내 위치 → 다음 장소 실시간 경로 {id, path, at, from}
   calMonth: null,   // 달력에 보이는 달 {y, m}
@@ -252,11 +252,6 @@ function renderTabs() {
 }
 
 const urgency = ms => (ms < 0 ? 'danger' : ms < S.settings.lead * 60000 ? 'warn' : '');
-
-function nextLine(d, j) {
-  const it = d.items[j], leg = S.cur.legs[j] || {}, m = MODES[it.mode];
-  return `<div class="st-row">다음 <b>${esc(it.place)}</b> · ${m.icon} ${fmtDur(leg.dur)}${leg.est ? '(추정)' : ''} · ${fmtClock(S.cur.sched[j].arrive)} 도착</div>`;
-}
 
 // 길찾기는 지도 앱에서 (내 위치 → 목적지, 경로는 거기서 고르기)
 const legButtons = i => `<button data-act="nav" data-i="${i}" class="primary">🗺️ 길찾기</button>`;
@@ -1453,8 +1448,6 @@ function updateDistances() {
   });
 }
 
-const polyMemo = new Map();
-const decodeMemo = s => { if (!polyMemo.has(s)) polyMemo.set(s, decodePolyline(s)); return polyMemo.get(s); };
 
 function renderMap(fit) {
   if (!S.map) return;
@@ -1498,7 +1491,6 @@ function drawLines() {
     const prev = sh.trip ? originOf(sh) : d?.items[sh.index - 1];
     if (hasPos(prev) && !sh.id) lines.push({ path: [prev, sh.draft], color: '#fdd835', dashed: true, width: 3 });
   }
-  if (S.routeView) lines.push({ path: S.routeView.path, color: S.routeView.color, width: 7, opacity: 0.95, z: 7 });
   const poiFrom = S.poi && d?.items[S.poi.from];
   if (hasPos(poiFrom)) lines.push({ path: [poiFrom, S.poi], color: '#ff7043', dashed: true, width: 3, z: 7 });
   if (S.live && S.pos) lines.push({ path: [S.pos, S.live.to], color: '#1a73e8', dashed: true, width: 4, opacity: 1, z: 9 }); // 내 위치 → 목적지
@@ -1843,122 +1835,12 @@ function maybeAdvanceDay() {
   selectDay(next.date, false);
 }
 
-// ---------- 경로 추천 ----------
-async function openRouteSheet(i) {
-  const d = curDay(), to = d.items[i];
-  const ph = isLive() ? phase(d) : null;
-  const fromMe = !!(S.pos && ph?.type === 'move' && ph.i === i);
-  const from = fromMe ? S.pos : d.items[i - 1];
-  if (!hasPos(from) || !hasPos(to)) { toast('위치 정보가 없어 경로를 계산할 수 없어요'); return; }
-  if (topLayer() !== 'map') openMap(i, topLayer() === 'detail' ? 'bottom' : 'right'); else focusMapItem(i);
-  S.sheet = { type: 'route', i, from, fromMe, fromName: fromMe ? '내 위치' : from.place, results: null, sel: null };
-  renderSheet();
-
-  const dist = haversine(from, to);
-  const modes = ['TRANSIT', 'WALK', 'DRIVE'];
-  if (to.mode === 'BICYCLE') modes.push('BICYCLE');
-  const departAt = fromMe ? Date.now() : atMs(d.date, S.cur.sched[i - 1].depart);
-  const key = gkey();
-  const results = (await Promise.all(modes.map(async mode => {
-    if (mode === 'WALK' && dist > 6000 && to.mode !== 'WALK') return null;
-    if (!key && mode === 'TRANSIT') return { mode, dur: estimateMin(dist, mode), dist, est: true };
-    try {
-      // 구글 경로가 없으면(한국 도보·차, 키 없음) 무료 OpenStreetMap 경로로
-      const routes = await routeFor(key, from, to, mode, departAt);
-      return routes.length ? { mode, routes, dur: routes[0].dur, dist: routes[0].dist, free: !!routes[0].free } : { mode, none: true };
-    } catch (e) {
-      return { mode, error: e.message, dur: estimateMin(dist, mode), dist, est: true };
-    }
-  }))).filter(Boolean);
-  if (S.sheet?.i !== i) return;
-
-  const ok = results.filter(r => r.dur != null);
-  let rec = null;
-  const walk = ok.find(r => r.mode === 'WALK');
-  if (walk && walk.dur <= 15) rec = 'WALK';
-  else if (ok.length) {
-    const min = Math.min(...ok.map(r => r.dur));
-    const planned = ok.find(r => r.mode === to.mode);
-    rec = planned && planned.dur <= min + 5 ? to.mode : ok.find(r => r.dur === min).mode;
-  }
-  if (!fromMe) {
-    for (const r of results) {
-      if (r.routes) S.legCache[legKey(from, to, r.mode)] = pickLeg(r.routes[0]);
-      else if (r.none) S.legCache[legKey(from, to, r.mode)] = { fail: true };
-    }
-    saveLegs();
-    recompute();
-    renderAll(false);
-  }
-  Object.assign(S.sheet, { results, rec });
-  selectRoute(rec || results[0]?.mode, 0);
-}
-
 // 경로 저장: 대표 경로 + (대중교통이면) 가능한 다른 노선들까지 최대 5개 (인터넷 없을 때도 보이게)
 const ridesOf = segs => (segs || []).filter(s => s.type === 'TRANSIT').map(s => ({ icon: s.icon, line: s.line, from: s.from, to: s.to, stops: s.stops, headsign: s.headsign, dep: s.depTime || null }));
 const pickLeg = (r, all) => ({
   dur: r.dur, dist: r.dist, poly: r.poly, segs: r.segs, fare: r.fare || null, v: 3,
   alts: (all || [r]).slice(0, 5).map(x => ({ dur: x.dur, walk: Math.round((x.segs || []).filter(s => s.type === 'WALK').reduce((a, s) => a + (s.dur || 0), 0)), rides: ridesOf(x.segs) })).filter(a => a.rides.length),
 });
-
-function selectRoute(mode, idx) {
-  const sh = S.sheet;
-  if (!sh || !mode) { renderSheet(); return; }
-  sh.sel = { mode, idx };
-  const r = sh.results.find(x => x.mode === mode);
-  const route = r?.routes?.[idx];
-  const to = curDay().items[sh.i];
-  S.routeView = { path: route?.poly ? decodeMemo(route.poly) : [sh.from, to], color: MODES[mode].color };
-  renderSheet();
-  drawLines();
-  S.map?.fit(S.routeView.path);
-}
-
-function segHtml(s) {
-  if (s.type === 'TRANSIT') {
-    const dep = s.depTime ? ` · ${clockAt(Date.parse(s.depTime), S.selected)} 출발` : '';
-    return `<li><span class="seg-icon">${s.icon}</span><div><b>${esc(s.line)}</b>${s.headsign ? ` ${esc(s.headsign)} 방면` : ''}<br>
-      <span class="muted">${esc(s.from)} → ${esc(s.to)} · ${s.stops}정거장 · ${fmtDur(s.dur)}${dep}</span></div></li>`;
-  }
-  const head = s.type === 'WALK' ? `🚶 걷기 ${fmtDur(s.dur)} (${fmtDist(s.dist)})` : `➡️ 이동 ${fmtDur(s.dur)} (${fmtDist(s.dist)})`;
-  const steps = s.steps.slice(0, 12).map(t => `<div class="muted small">· ${esc(t)}</div>`).join('');
-  return `<li><div>${head}${steps}</div></li>`;
-}
-
-function routeSheetHtml(sh) {
-  const d = curDay(), to = d.items[sh.i];
-  let body;
-  if (!sh.results) body = '<div class="muted pad">경로 계산 중…</div>';
-  else {
-    const cards = sh.results.map(r => {
-      const m = MODES[r.mode];
-      return `<button class="mode-card ${sh.sel?.mode === r.mode ? 'on' : ''}" data-act="pickMode" data-mode="${r.mode}" ${r.none ? 'disabled' : ''}>
-        <span class="mi">${m.icon}</span><span class="ml">${m.label}</span>
-        <b>${r.none ? '경로 없음' : fmtDur(r.dur)}</b><span class="muted small">${r.dist ? fmtDist(r.dist) : ''}</span>
-        <span>${sh.rec === r.mode ? '<span class="badge ok">추천</span>' : ''}${to.mode === r.mode ? '<span class="badge">계획</span>' : ''}${r.est ? '<span class="est">추정</span>' : ''}${r.free ? '<span class="est">무료지도</span>' : ''}</span>
-      </button>`;
-    }).join('');
-    const r = sh.results.find(x => x.mode === sh.sel?.mode);
-    let detail = '';
-    if (r?.routes) {
-      const alts = r.routes.length > 1
-        ? `<div class="alts">${r.routes.map((x, k) => `<button class="${sh.sel.idx === k ? 'on' : ''}" data-act="pickAlt" data-k="${k}">경로 ${k + 1} · ${fmtDur(x.dur)}</button>`).join('')}</div>` : '';
-      detail = `${alts}<ul class="segs">${r.routes[sh.sel.idx].segs.map(segHtml).join('')}</ul>`;
-      if (r.free) detail += `<div class="muted small pad">${inKorea(to) ? '구글은 한국에서 도보·차 길찾기를 제공하지 않아' : '무료 지도'} OpenStreetMap 경로로 보여드려요. 지도에 그려진 선을 따라가면 돼요.</div>`;
-    } else if (r?.error) {
-      detail = `<div class="warn">경로를 받지 못했어요: ${esc(r.error)}</div>`;
-    }
-    if (!gkey() && r?.mode === 'TRANSIT') detail += '<div class="muted small pad">대중교통 노선은 설정에 구글맵 API 키를 넣어야 보여요. 지금은 직선거리로 추정한 시간이에요.</div>';
-    const navApp = inKorea(to) ? '카카오맵' : '구글맵';
-    body = `<div class="mode-cards">${cards}</div>${detail}
-      <div class="st-actions">
-        ${sh.sel ? `<button class="primary" data-act="navMode">${navApp} 길안내 시작</button>` : ''}
-        ${sh.sel && sh.sel.mode !== to.mode ? `<button data-act="useMode">일정을 ${MODES[sh.sel.mode].label}(으)로 변경</button>` : ''}
-      </div>`;
-  }
-  return `<div class="sheet-head"><div><div class="st-label">경로 추천</div><b>${esc(sh.fromName)} → ${esc(to.place)}</b></div>
-    <button class="x" data-act="closeSheet">✕</button></div>${body}`;
-}
 
 function renderSheet() {
   const el = $('#sheet'), sh = S.sheet;
@@ -1969,7 +1851,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, route: routeSheetHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -2306,7 +2188,7 @@ function poiAdd(r, i) {
 function closeSheet() {
   // 저장하지 않고 닫은 수정 창에서 새로 첨부한 파일은 지움
   if (S.sheet?.type === 'edit' && !S.sheet.saved) (S.sheet.added || []).forEach(id => deleteFile(id).catch(() => {}));
-  S.sheet = null; S.routeView = null; S.pick = false; S.tp = null;
+  S.sheet = null; S.pick = false; S.tp = null;
   renderSheet(); renderMap(false);
 }
 
@@ -2371,7 +2253,7 @@ function openEditor(index, id, opt = {}) {
     sh.tval = date === todayStr() ? Math.min(roundUp10(nowMinOf(date) + 10), 23 * 60 + 50) : 9 * 60;
   }
   S.sheet = sh;
-  S.routeView = null;
+ 
   S.tp = null;
   renderSheet();
   renderMap(false);
@@ -2967,7 +2849,6 @@ function selectDay(date, manual, fromBack) {
   }
   S.selected = date;
   S.followToday = !manual || date === todayStr();
-  S.open = null;
   S.live = null;
   S.focus = null;
   S.detail = null;
@@ -3209,26 +3090,20 @@ async function act(name, el) {
   const d = curDay(), i = +el.dataset.i;
   switch (name) {
     case 'load': $('#fileInput').click(); break;
-    case 'sample': {
-      const text = await (await fetch('sample.csv')).text();
-      loadPlan(parsePlanText(text, '도쿄 여행 (샘플)'));
-      break;
-    }
     case 'rename': {
       const t = prompt('여행 이름', S.plan.title || '');
       if (t != null && t.trim()) { S.plan.title = t.trim(); savePlan(); renderAll(false); }
       break;
     }
-    case 'calendar': S.calMonth = null; S.sheet = { type: 'cal' }; S.routeView = null; renderSheet(); break;
-    case 'settings': S.sheet = { type: 'settings' }; S.routeView = null; renderSheet(); break;
+    case 'calendar': S.calMonth = null; S.sheet = { type: 'cal' }; renderSheet(); break;
+    case 'settings': S.sheet = { type: 'settings' }; renderSheet(); break;
     case 'toggleView': if (topLayer() === 'map') popLayer(); else openMap(null); break;
     case 'toList': popLayer(); break;
     case 'openMap': openMap(i); break;
-    case 'focusMap': focusMapItem(i); break;
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
-    case 'guide': S.sheet = { type: 'guide' }; S.routeView = null; renderSheet(); break;
+    case 'guide': S.sheet = { type: 'guide' }; renderSheet(); break;
     case 'getTemplate': getTemplate(); break;
     case 'copyPrompt': copyPrompt(); break;
     case 'suggest': openSuggest(el.dataset.type, +el.dataset.k); break;
@@ -3287,13 +3162,6 @@ async function act(name, el) {
     case 'poiNav': { const r = S.sheet.results[+el.dataset.k]; openExternal(navUrl(null, r, 'WALK', r.name)); break; }
     case 'poiAdd': poiAdd(S.sheet.results[+el.dataset.k], S.sheet.i); break;
     case 'poiWeb': openExternal(el.dataset.url); break;
-    case 'toggleMore': {
-      const id = d.items[i].id;
-      S.open = S.open === id ? null : id;
-      document.querySelectorAll('.tl-row').forEach(r => r.classList.toggle('open', S.open === d.items[+r.dataset.i]?.id));
-      break;
-    }
-    case 'noop': break;
     case 'calPrev': case 'calNext': {
       const c = S.calMonth, m = c.m + (name === 'calNext' ? 1 : -1);
       S.calMonth = m < 1 ? { y: c.y - 1, m: 12 } : m > 12 ? { y: c.y + 1, m: 1 } : { y: c.y, m };
@@ -3311,7 +3179,6 @@ async function act(name, el) {
     case 'edChoose': edChoose(+el.dataset.k); break;
     case 'orSearch': edSearch('origin'); break;
     case 'orChoose': { const r = S.sheet.oResults[+el.dataset.k]; setOrigin({ place: r.name, address: r.address, lat: r.lat, lng: r.lng, from: 'search' }); break; }
-    case 'orHere': { const p = hereOrToast(); if (p) setOrigin({ place: '현재 위치', address: '', ...p, from: 'here' }); break; }
     case 'orReset': setOrigin(null); break;
     case 'orHotel': { const h = prevHotel(S.sheet.date); if (h) setOrigin({ place: h.place, address: h.address, lat: h.lat, lng: h.lng, from: 'hotel' }); break; }
     case 'edHere': {
@@ -3342,7 +3209,6 @@ async function act(name, el) {
       openExternal(navUrl(live ? null : d.items[i - 1], d.items[i], d.items[i].mode, d.items[i].place));
       break;
     }
-    case 'route': openRouteSheet(i); break;
     case 'arrive': markArrive(d, i); break;
     case 'edDate': syncDraft(); S.sheet.moveTo = el.dataset.date; renderSheet(); break;
     case 'arriveYes': markArrive(d, i); toast(`📍 ${d.items[i].place} 도착`); break;
@@ -3367,20 +3233,6 @@ async function act(name, el) {
     case 'clear': delete progOf(d.date)[d.items[i].id]; changed(); if (S.sheet?.type === 'prog') renderSheet(); break;
     case 'gmap': openExternal(placeUrl(d.items[i])); break;
     case 'closeSheet': closeSheet(); break;
-    case 'pickMode': selectRoute(el.dataset.mode, 0); break;
-    case 'pickAlt': selectRoute(S.sheet.sel.mode, +el.dataset.k); break;
-    case 'navMode': {
-      const sh = S.sheet;
-      openExternal(navUrl(sh.fromMe ? null : sh.from, d.items[sh.i], sh.sel.mode, d.items[sh.i].place));
-      break;
-    }
-    case 'useMode': {
-      const sh = S.sheet;
-      d.items[sh.i].mode = sh.sel.mode;
-      savePlan(); recompute(); renderAll(false); renderSheet(); scheduleAlarms();
-      toast(`이동수단을 ${MODES[sh.sel.mode].label}(으)로 바꿨어요`);
-      break;
-    }
     case 'saveSettings': saveSettings(); break;
     case 'invite': openInvite(); break;
     case 'inviteOk': inviteOk(); break;
@@ -3393,7 +3245,7 @@ async function act(name, el) {
       break;
     case 'resetProgress': resetDay(d); break;
     case 'doneUpTo': closeSheet(); markDoneUpTo(d, i); break;
-    case 'keep': S.sheet = { type: 'keep', tab: S.keepTab || 'fav', cat: 'all' }; S.routeView = null; renderSheet(); break;
+    case 'keep': S.sheet = { type: 'keep', tab: S.keepTab || 'fav', cat: 'all' }; renderSheet(); break;
     case 'keepTab': S.keepTab = S.sheet.tab = el.dataset.tab; renderSheet(); break;
     case 'favCat': S.sheet.cat = el.dataset.cat; renderSheet(); break;
     case 'favSearch': favSearch(); break;
@@ -3421,7 +3273,7 @@ async function act(name, el) {
     case 'memMapDay': memMapFit(el.dataset.date); break;
     case 'memExport': exportKeep(); break;
     case 'memImport': importInput.click(); break;
-    case 'progSheet': S.sheet = { type: 'prog' }; S.routeView = null; renderSheet(); break;
+    case 'progSheet': S.sheet = { type: 'prog' }; renderSheet(); break;
     case 'clearRoutes': S.legCache = {}; saveLegs(); recompute(); renderAll(false); prefetchLegs(); toast('경로를 다시 계산해요'); break;
     case 'deletePlan':
       if (!confirm('모든 일정과 기록을 지울까요?')) break;

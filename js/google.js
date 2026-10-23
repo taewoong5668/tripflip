@@ -1,5 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
-import { PROXY_URL } from './config.js?v=202610221109';
+import { PROXY_URL } from './config.js?v=202610240601';
 
 const ROUTE_FIELDS = [
   'routes.duration',
