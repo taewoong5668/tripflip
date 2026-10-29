@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291652';
-import { arrivalGuide } from './guides.js?v=202610291652';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291700';
+import { arrivalGuide } from './guides.js?v=202610291700';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291652';
-import { createMap } from './map.js?v=202610291652';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291652';
-import { PROXY_URL } from './config.js?v=202610291652';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291652';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291652';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291652';
-import { tzOf } from './tz.js?v=202610291652';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291652';
-import { findCodes, codeName } from './codes.js?v=202610291652';
+} from './schedule.js?v=202610291700';
+import { createMap } from './map.js?v=202610291700';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291700';
+import { PROXY_URL } from './config.js?v=202610291700';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291700';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291700';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291700';
+import { tzOf } from './tz.js?v=202610291700';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291700';
+import { findCodes, codeName } from './codes.js?v=202610291700';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2277,15 +2277,19 @@ function focusMapItem(i, scrollCard = true) {
 
 let toastTimer;
 // undo: { label, fn } 주면 알림 안에 버튼(예: 되돌리기)을 붙임
+// 알림은 맨 아래 꽉 찬 한 줄 띠: 글자 부분은 손가락이 그냥 지나가서 밑의 버블·버튼을 바로 누를 수 있고, [되돌리기] 같은 버튼만 눌림
 function toast(msg, ms = 3000, undo = null) {
-  const el = $('#toast');
-  el.textContent = msg; el.hidden = false;
+  const el = $('#toast'), t = document.createElement('span');
+  t.className = 'toast-msg'; t.textContent = msg;
+  el.replaceChildren(t); el.hidden = false;
   if (undo) {
     const b = document.createElement('button');
     b.className = 'toast-btn'; b.textContent = undo.label;
     b.onclick = e => { e.stopPropagation(); el.hidden = true; undo.fn(); };
-    el.append(' ', b);
+    el.append(b);
   }
+  el.classList.remove('fit');
+  if (t.scrollWidth > t.clientWidth) el.classList.add('fit'); // 한 줄에 안 들어가면 글씨를 조금 작게 (그래도 길면 … 으로)
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), ms);
 }

@@ -510,11 +510,18 @@ button.chip.poi:active { background: var(--accent-soft); }
 .vwc img { image-rendering: pixelated; width: 100%; max-width: 520px; }
 .vwc.sq img { max-width: min(520px, 62vh); }
 .vwc figcaption { font-size: 15px; font-weight: 700; letter-spacing: .5px; text-align: center; word-break: break-all; user-select: text; }
+/* 알림: 화면 맨 아래 꽉 찬 한 줄 띠. 글자 부분은 눌러도 밑으로 지나가고 버튼만 눌림 (다른 작업을 바로 할 수 있게) */
 .toast {
-  position: fixed; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 3000;
-  background: rgba(17, 34, 51, .94); color: var(--bg); padding: 10px 16px; border-radius: 14px; font-size: 14px; font-weight: 600; max-width: 90vw; text-align: center;
-  backdrop-filter: blur(8px);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3000; pointer-events: none;
+  display: flex; align-items: center; gap: 10px; min-height: 44px; box-sizing: border-box;
+  padding: 7px 10px calc(7px + env(safe-area-inset-bottom)) 16px; border-radius: 14px 14px 0 0;
+  background: rgba(17, 34, 51, .94); color: #f6f7fb; font-size: 14px; font-weight: 600;
+  backdrop-filter: blur(8px); animation: toastup .18s ease-out;
 }
+.toast[hidden] { display: none; }
+.toast.fit { font-size: 12.5px; }
+.toast-msg { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes toastup { from { transform: translateY(100%); } }
 
 /* 상세 화면: 대중교통 가능한 노선 · 승차→하차 정류장 */
 .ride-all { margin: 8px 0 4px; font-size: 13px; font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -542,7 +549,7 @@ button.chip.poi:active { background: var(--accent-soft); }
 #dragTrash.show { transform: translate(-50%, 0); opacity: 1; }
 #dragTrash.hot { background: var(--danger); color: #fff; border-style: solid; transform: translate(-50%, 0) scale(1.1); }
 #dragTrash .dt-icon { font-size: 22px; }
-.toast-btn { margin-left: 8px; padding: 4px 12px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 700; font-size: 13px; }
+.toast-btn { flex: none; pointer-events: auto; padding: 7px 14px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 800; font-size: 13px; white-space: nowrap; }
 
 /* 진행 상황 고치기 */
 button.progress { font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
