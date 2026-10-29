@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291415';
-import { arrivalGuide } from './guides.js?v=202610291415';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291421';
+import { arrivalGuide } from './guides.js?v=202610291421';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291415';
-import { createMap } from './map.js?v=202610291415';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291415';
-import { PROXY_URL } from './config.js?v=202610291415';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291415';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291415';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291415';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291415';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291415';
-import { findCodes, codeName } from './codes.js?v=202610291415';
+} from './schedule.js?v=202610291421';
+import { createMap } from './map.js?v=202610291421';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291421';
+import { PROXY_URL } from './config.js?v=202610291421';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291421';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291421';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291421';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291421';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291421';
+import { findCodes, codeName } from './codes.js?v=202610291421';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,7 +22,7 @@ const store = {
 const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
-const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false };
+const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false, detailList: false };
 // 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
 const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
@@ -564,23 +564,30 @@ function setupRowDrag() {
   document.body.append(trash);
   const overTrash = (x, y) => { const b = trash.getBoundingClientRect(); return x >= b.left - 20 && x <= b.right + 20 && y >= b.top - 20; };
 
+  const startDrag = p => {
+    closePeek();
+    S.drag = { i: p.i, row: p.row, y0: p.y, target: p.i, tab: null, id: p.id };
+    p.row.classList.add('dragging');
+    trash.classList.add('show');
+    navigator.vibrate?.(30);
+    toast('끌어서 순서 바꾸기 · 위 날짜에 놓으면 그 날로 · 아래 🗑에 놓으면 삭제', 2500);
+  };
   tl.addEventListener('pointerdown', e => {
     const row = e.target.closest('.row[data-i]');
     if (!row || e.target.closest('button') || S.drag) return;
     const i = +row.dataset.i;
-    press = { i, row, x: e.clientX, y: e.clientY, timer: setTimeout(() => {
-      // 0.45초 길게 누르면 끌기 시작
-      S.drag = { i, row, y0: press.y, target: i, tab: null, id: e.pointerId };
-      row.classList.add('dragging');
-      trash.classList.add('show');
+    press = { i, row, x: e.clientX, y: e.clientY, id: e.pointerId, timer: setTimeout(() => {
+      // 0.45초 길게 누르면 간략 정보 창. 손가락을 떼지 않고 움직이면 끌기로
+      press.peek = true;
       try { row.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
-      navigator.vibrate?.(30);
-      toast('끌어서 순서 바꾸기 · 위 날짜에 놓으면 그 날로 · 아래 🗑에 놓으면 삭제', 2500);
-      press = null;
+      openPeek(i, row);
     }, 450) };
   });
   tl.addEventListener('pointermove', e => {
-    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress(); // 그냥 스크롤
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) {
+      if (press.peek) { const p = press; press = null; startDrag(p); }
+      else cancelPress(); // 그냥 스크롤
+    }
     const g = S.drag;
     if (!g) return;
     g.row.style.transform = `translateY(${e.clientY - g.y0}px)`;
@@ -599,6 +606,10 @@ function setupRowDrag() {
     if (rows[t]) rows[t].classList.add('drop-before'); else rows.at(-1)?.classList.add('drop-after');
   });
   const end = () => {
+    if (press?.peek) { // 길게 눌렀다 뗌: 창은 그대로 두고(읽을 수 있게), 다음 톡으로 닫기/자세히
+      S.dragJustEnded = Date.now();
+      S.peek?.el.classList.add('ready');
+    }
     cancelPress();
     const g = S.drag;
     if (!g) return;
@@ -622,7 +633,7 @@ function setupRowDrag() {
   tl.addEventListener('pointerup', end);
   tl.addEventListener('pointercancel', end);
   // 끄는 중엔 화면 스크롤 막기
-  tl.addEventListener('touchmove', e => { if (S.drag && e.cancelable) e.preventDefault(); }, { passive: false });
+  tl.addEventListener('touchmove', e => { if ((S.drag || press?.peek) && e.cancelable) e.preventDefault(); }, { passive: false });
   tl.addEventListener('contextmenu', e => { if (S.drag || press) e.preventDefault(); });
 }
 
@@ -1170,8 +1181,10 @@ function renderTimeline() {
   const busy = k => [d.items[k], d.items[k + 1]].some(x => x && (isFlight(x.place) || AIRPORT_RE.test(x.place)));
   const passed = g => nowM >= 0 && (g.we != null ? nowM > g.we : nowM > (S.cur.sched[g.k]?.depart ?? 1e9));
   if (d.date >= todayStr()) for (const g of [...mealGaps(d), ...extraGaps(d)]) if (!busy(g.k) && !passed(g)) (gaps[g.k] ||= []).push(g);
+  const simple = !S.settings.detailList;
   const rows = d.items.map((it, i) => {
     const s = sched[i], state = states[i], done = state === 'done' || state === 'skip', color = placeColor(i, state);
+    if (simple) return simpleRowHtml(d, i, state, color) + gapsHtml(gaps[i], i);
     let leg = '';
     if (i > 0) {
       const l = legs[i], m = MODES[it.mode];
@@ -1204,15 +1217,81 @@ function renderTimeline() {
         <div class="row-sub">${sub}${s.late > 0 && !done ? ` <span class="late-tag">⚠ ${fmtDur(s.late)} 늦음</span>` : ''}${hasPos(it) ? '' : ` · <button class="bad" data-act="fixPlace" data-i="${i}">⚠ 위치 없음 · 눌러서 찾기</button>`}</div>
       </div>
       <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
-    </div>${(gaps[i] || []).map(g => `<div class="suggest-slot ${g.icon ? g.type : ''}" data-act="suggest" data-type="${g.type}" data-k="${i}">
-      ${g.icon ? `<span>${g.icon} ${g.label} <span class="muted">· ${g.text}</span></span>`
-        : `<span>🍽 ${g.label} 추가 <span class="muted">· ${fmtClock(g.center)} 무렵 · 근처 맛집 추천</span></span>`}
-      <button class="suggest-x" data-act="suggestSkip" data-type="${g.skip || g.type}" aria-label="숨기기">✕</button></div>`).join('')}`;
+    </div>${gapsHtml(gaps[i], i)}`;
   }).join('');
   const doneCount = states.filter(s => s === 'done' || s === 'skip').length;
-  el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows">${rows}</div>
+  el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows ${simple ? 'simple' : ''}">${rows}</div>
     <button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>
     ${dayNotesHtml(d)}`;
+}
+
+// 식사·여유 시간 추천 칸 (점선)
+const gapsHtml = (list, i) => (list || []).map(g => `<div class="suggest-slot ${g.icon ? g.type : ''}" data-act="suggest" data-type="${g.type}" data-k="${i}">
+      ${g.icon ? `<span>${g.icon} ${g.label} <span class="muted">· ${g.text}</span></span>`
+        : `<span>🍽 ${g.label} 추가 <span class="muted">· ${fmtClock(g.center)} 무렵 · 근처 맛집 추천</span></span>`}
+      <button class="suggest-x" data-act="suggestSkip" data-type="${g.skip || g.type}" aria-label="숨기기">✕</button></div>`).join('');
+
+// 간단히 보기 한 줄: 정한 이름 + 위치(주소)만. 지금/다음 표시와 꼭 필요한 경고(늦음·위치 없음)만 남김
+function simpleRowHtml(d, i, state, color) {
+  const it = d.items[i], s = S.cur.sched[i], done = state === 'done' || state === 'skip';
+  const tag = state === 'here' ? '<span class="row-tag now">지금</span>' : state === 'next' ? '<span class="row-tag next">다음</span>' : '';
+  const warn = `${s?.late > 0 && !done ? `<span class="late-tag">⚠ ${fmtDur(s.late)} 늦음</span> ` : ''}${hasPos(it) ? '' : '<button class="bad" data-act="fixPlace" data-i="' + i + '">⚠ 위치 없음 · 눌러서 찾기</button>'}`;
+  const where = it.address ? `📍 ${esc(it.address)}` : '';
+  return `<div class="row simple ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
+      <div class="row-main">
+        <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
+        ${warn || where ? `<div class="row-sub">${warn}${where}</div>` : ''}
+      </div>
+      <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
+    </div>`;
+}
+
+// ---------- 길게 누르면 간략 정보 창 (누른 채 끌면 순서 바꾸기로 이어짐) ----------
+function peekHtml(d, i) {
+  const it = d.items[i], s = S.cur.sched[i] || {}, l = S.cur.legs[i], n = d.items.length, m = MODES[it.mode];
+  const ph = isLive() ? phase(d) : null, state = itemState(d, i, ph), done = state === 'done' || state === 'skip';
+  const fixed = isFixedItem(d, i), first = i === 0 && n > 1 && !s.proc;
+  const line = (icon, html) => `<div class="pk-line"><span>${icon}</span><span>${html}</span></div>`;
+  const lines = [];
+  if (done) lines.push(line('✓', state === 'skip' ? '건너뜀' : '다녀왔어요'));
+  if (s.proc) lines.push(line('✈️', `${fmtClock(s.arrive)} 착륙 · 입국 절차 약 ${fmtDur(s.proc)}`));
+  else if (first) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`));
+  else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤까지` : ''}`));
+  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
+  if (s.late > 0 && !done) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
+  if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
+  lines.push(line('📍', it.address ? esc(it.address) : hasPos(it) ? '<span class="muted">지도 위치 있음</span>' : '<span class="late-tag">위치 없음</span>'));
+  if (it.memo) lines.push(line('📝', `<span class="pk-memo">${esc(it.memo)}</span>`));
+  if (it.files?.length) lines.push(line('📎', `첨부 ${it.files.length}개`));
+  return `<div class="pk-card" data-act="peekOpen" data-i="${i}" style="--c:${placeColor(i, state)}">
+      <div class="pk-top"><span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b></div>
+      <div class="pk-lines">${lines.join('')}</div>
+      <div class="pk-hint">눌러서 자세히 보기 · 누른 채로 끌면 순서 바꾸기</div>
+    </div>`;
+}
+function openPeek(i, row) {
+  const d = curDay();
+  if (!d?.items[i]) return;
+  closePeek();
+  const el = document.createElement('div');
+  el.className = 'peek';
+  el.dataset.act = 'peekClose';
+  el.innerHTML = peekHtml(d, i);
+  document.body.append(el);
+  S.peek = { i, el };
+  row.classList.add('peeked');
+  // 누른 줄 자리에서 커지듯이: 줄 위쪽에 맞추되 화면 밖으로 안 나가게
+  const card = el.firstElementChild, r = row.getBoundingClientRect(), h = card.offsetHeight;
+  const top = Math.max(12 + (window.visualViewport?.offsetTop || 0), Math.min(r.top - 6, innerHeight - h - 16));
+  card.style.top = `${top}px`;
+  card.style.transformOrigin = `50% ${Math.round(r.top + r.height / 2 - top)}px`;
+  navigator.vibrate?.(15);
+}
+function closePeek() {
+  if (!S.peek) return;
+  S.peek.el.remove();
+  document.querySelectorAll('.row.peeked').forEach(r => r.classList.remove('peeked'));
+  S.peek = null;
 }
 
 // ---------- 식사 빈칸 찾기 ----------
@@ -1704,12 +1783,13 @@ function backToList(i) {
 
 // 앱 안에서 돌아갈 화면이 남아 있는지
 // 처음 화면이 아니면 뒤로 가기로 처음 화면에 돌아올 수 있음
-const canGoBack = () => !$('#alarm').hidden || !!S.viewer || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0
+const canGoBack = () => !$('#alarm').hidden || !!S.peek || !!S.viewer || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0
   || !S.home || (S.home.step !== 'kind' && S.home.step !== 'done') || S.home.fromDone;
 
 // 휴대폰 뒤로 가기: 바로 전 화면으로. 첫 화면이면 종료할지 물어봄 (앱에서만)
 function goBack() {
   if (!$('#alarm').hidden) { dismissAlarm(); return; }
+  if (S.peek) { closePeek(); return; }
   if (S.viewer) { if (S.viewer.codesOn) hideCodes(); else closeViewer(); return; }
   if (S.memMap) { closeMemMap(); return; }
   if (S.pick) { finishPick(); return; }
@@ -2748,6 +2828,7 @@ function settingsHtml() {
     <label class="field">도착으로 인정할 거리 (m)<input id="setRadius" type="number" min="20" max="1000" value="${s.radius}"></label>
     <label class="field">출발 몇 분 전에 미리 알림 (0이면 끔)<input id="setLead" type="number" min="0" max="120" value="${s.lead}"></label>
     <label class="field">예약 시간 전 여유 (분)<input id="setBuffer" type="number" min="0" max="60" value="${s.buffer}"></label>
+    <label class="check"><input id="setDetail" type="checkbox" ${s.detailList ? 'checked' : ''}> 시간표를 자세히 보기 (끄면 이름·위치만 간단히, 길게 누르면 간략 정보)</label>
     <label class="check"><input id="setSim" type="checkbox" ${s.sim ? 'checked' : ''}> 테스트 모드: 선택한 날을 오늘로 보고, 지도를 누른 곳을 내 위치로 사용</label>
     <div class="st-actions"><button class="primary" data-act="saveSettings">저장</button></div>
     <hr>
@@ -2773,6 +2854,7 @@ function saveSettings() {
     lead: Math.min(120, Math.max(0, num('#setLead', 10))),
     buffer: Math.min(60, Math.max(0, num('#setBuffer', 5))),
     sim: $('#setSim').checked,
+    detailList: $('#setDetail').checked,
   };
   store.set('tg.settings', S.settings);
   if (old.apiKey !== S.settings.apiKey) { location.reload(); return; }
@@ -3341,6 +3423,8 @@ async function act(name, el) {
     case 'toList': popLayer(); break;
     case 'openMap': openMap(i); break;
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
+    case 'peekOpen': closePeek(); openDetail(i); break;
+    case 'peekClose': closePeek(); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
     case 'guide': S.sheet = { type: 'guide' }; renderSheet(); break;
@@ -3649,7 +3733,7 @@ function dragTracker(el, { onMove, onEnd, axis: want, holdY, skip }) {
   const begin = (x, y) => { st = skip?.() ? null : { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
   const move = (x, y, e) => {
     if (!st) return;
-    if (S.drag) { st = null; return; } // 일정 끌어서 옮기는 중엔 화면 넘기기 안 함
+    if (S.drag || S.peek) { st = null; return; } // 일정 끌어서 옮기는 중·간략 창이 떠 있을 땐 화면 넘기기 안 함
     st.dx = x - st.x; st.dy = y - st.y;
     if (!st.axis && Math.hypot(st.dx, st.dy) > 10) st.axis = Math.abs(st.dx) > Math.abs(st.dy) * 1.2 ? 'x' : 'y';
     if (st.axis === want) {
