@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291922';
-import { arrivalGuide } from './guides.js?v=202610291922';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291927';
+import { arrivalGuide } from './guides.js?v=202610291927';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291922';
-import { createMap } from './map.js?v=202610291922';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291922';
-import { PROXY_URL } from './config.js?v=202610291922';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291922';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291922';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291922';
-import { tzOf } from './tz.js?v=202610291922';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291922';
-import { findCodes, codeName } from './codes.js?v=202610291922';
+} from './schedule.js?v=202610291927';
+import { createMap } from './map.js?v=202610291927';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291927';
+import { PROXY_URL } from './config.js?v=202610291927';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291927';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291927';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291927';
+import { tzOf } from './tz.js?v=202610291927';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291927';
+import { findCodes, codeName } from './codes.js?v=202610291927';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,7 +23,7 @@ const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).sli
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
 const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false, detailList: false };
-// 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
+// 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 버블트립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
 const boardMode = () => !S.settings.detailList; // 기본: 버블 보드 (순서 중심, 시간·알람·제한 없음)
 const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
@@ -806,7 +806,7 @@ async function exportKeep() {
     if (rec) photos[id] = { name: rec.name, type: rec.type, data: await toDataUrl(rec.blob) };
   }
   const text = JSON.stringify({ app: 'tripflip', kind: 'keep', v: 1, at: Date.now(), mems: S.mems, favs: S.favs, photos });
-  const how = await saveOrShare(`트립플립_추억_${todayStr()}.json`, text).catch(e => { toast(`저장하지 못했어요: ${e.message}`, 5000); return null; });
+  const how = await saveOrShare(`버블트립_추억_${todayStr()}.json`, text).catch(e => { toast(`저장하지 못했어요: ${e.message}`, 5000); return null; });
   if (how === 'saved') toast('📁 휴대폰 "문서" 폴더에 저장했어요. 카톡·드라이브로도 보내 두세요', 5000);
   else if (how === 'downloaded') toast('⬇ 다운로드 폴더에 저장했어요', 4000);
   else if (how === 'shared') toast('백업 파일을 보냈어요');
@@ -814,7 +814,7 @@ async function exportKeep() {
 const importInput = hiddenInput('.json,application/json', false, async ([f]) => {
   try {
     const data = JSON.parse(await f.text());
-    if (data.app !== 'tripflip' || data.kind !== 'keep') throw new Error('트립플립 추억 백업 파일이 아니에요');
+    if (data.app !== 'tripflip' || data.kind !== 'keep') throw new Error('버블트립 추억 백업 파일이 아니에요');
     for (const [id, p] of Object.entries(data.photos || {})) {
       if (await getFile(id).catch(() => null)) continue;
       await putFile({ id, name: p.name, type: p.type }, await (await fetch(p.data)).blob());
@@ -2282,7 +2282,7 @@ function resetAll() {
 }
 
 function exitHtml() {
-  return `<div class="exit-box"><div class="exit-icon">🧳</div><b>트립플립을 종료할까요?</b>
+  return `<div class="exit-box"><div class="exit-icon">🧳</div><b>버블트립을 종료할까요?</b>
     <div class="st-actions"><button class="primary" data-act="exitApp">종료</button><button data-act="closeSheet">취소</button></div></div>`;
 }
 
@@ -2583,7 +2583,7 @@ async function getTemplate() {
   // 앱에서는 웹 주소로 열어 휴대폰 브라우저가 내려받게, 웹앱에서는 바로 내려받기
   if (isNative) { openExternal(`${WEB_URL}tripflip-template.xlsx`); return; }
   const a = document.createElement('a');
-  a.href = 'tripflip-template.xlsx'; a.download = '트립플립_일정양식.xlsx';
+  a.href = 'tripflip-template.xlsx'; a.download = '버블트립_일정양식.xlsx';
   document.body.appendChild(a); a.click(); a.remove();
   toast('양식을 내려받았어요');
 }
@@ -3247,7 +3247,7 @@ function openInvite() {
 }
 
 function inviteHtml(sh) {
-  return `<div class="sheet-head"><div><div class="st-label">트립플립</div><b>🔑 초대 코드</b></div><button class="x" data-act="closeSheet">✕</button></div>
+  return `<div class="sheet-head"><div><div class="st-label">버블트립</div><b>🔑 초대 코드</b></div><button class="x" data-act="closeSheet">✕</button></div>
     <p class="muted">지인에게 받은 초대 코드를 넣으면 구글 장소 검색·맛집 추천·대중교통 경로를 쓸 수 있어요. 코드가 없어도 무료 지도로 쓸 수 있어요.</p>
     <label class="field">초대 코드<input id="inviteCode" inputmode="numeric" autocomplete="off" value="${esc(S.settings.invite)}" placeholder="예: 1234"></label>
     ${sh.err ? `<div class="dt-warn">⚠ ${esc(sh.err)}</div>` : ''}
@@ -3292,7 +3292,7 @@ function settingsHtml() {
     <div class="reset-box"><div><b>🧪 시험용</b><div class="muted small">일정을 모두 지우고 처음 화면부터 다시 해 볼 때</div></div><button data-act="resetAsk">🗑 모든 일정 초기화</button></div>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
     <div class="muted small">${PROXY_URL
-      ? '비워 두어도 트립플립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
+      ? '비워 두어도 버블트립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
       : '키는 이 기기에만 저장돼요. 비워 두면 무료 지도와 추정 시간으로 동작해요.'}</div>
     ${PROXY_URL ? `<div class="field">초대 코드 <span class="muted small">(지인 전용 구글 검색)</span>
       <div class="st-actions"><span class="muted small">${s.invite ? '✅ 입력됨' : '아직 없음 · 무료 지도로 동작 중'}</span><button data-act="invite">${s.invite ? '코드 바꾸기' : '코드 입력'}</button></div></div>` : ''}
@@ -3422,7 +3422,7 @@ function openTripName(from) {
   setTimeout(() => { const t = $('#tripName'); t?.focus(); t?.select(); }, 300);
 }
 function tripNameHtml(sh) {
-  const home = sh.from === 'home', kind = { domestic: '🏞️ 국내 여행', abroad: '✈️ 해외 여행' }[home ? S.home?.kind : S.plan.trip?.kind] || '트립플립';
+  const home = sh.from === 'home', kind = { domestic: '🏞️ 국내 여행', abroad: '✈️ 해외 여행' }[home ? S.home?.kind : S.plan.trip?.kind] || '버블트립';
   return `<div class="sheet-head"><div><div class="st-label">${kind}</div><b>✏️ 여행 이름 정하기</b></div><button class="x" data-act="closeSheet">✕</button></div>
     <label class="field">여행 이름<input id="tripName" maxlength="30" autocomplete="off" enterkeyhint="done" value="${esc(sh.value)}" placeholder="${S.home?.kind === 'domestic' ? '예: 제주 가족여행' : '예: 시드니 신혼여행'}"></label>
     <div class="st-actions"><button class="primary" data-act="tripNameOk">${home ? '정하기' : '바꾸기'}</button><button data-act="closeSheet">${home ? '나중에 정하기' : '취소'}</button></div>`;

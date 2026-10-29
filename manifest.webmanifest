@@ -1,6 +1,6 @@
 {
-  "name": "트립플립",
-  "short_name": "트립플립",
+  "name": "버블트립",
+  "short_name": "버블트립",
   "description": "여행 일정과 동선을 지도로 안내하는 여행 가이드",
   "lang": "ko",
   "start_url": "./",
