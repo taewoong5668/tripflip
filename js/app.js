@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291529';
-import { arrivalGuide } from './guides.js?v=202610291529';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291538';
+import { arrivalGuide } from './guides.js?v=202610291538';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291529';
-import { createMap } from './map.js?v=202610291529';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291529';
-import { PROXY_URL } from './config.js?v=202610291529';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291529';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291529';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291529';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291529';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291529';
-import { findCodes, codeName } from './codes.js?v=202610291529';
+} from './schedule.js?v=202610291538';
+import { createMap } from './map.js?v=202610291538';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291538';
+import { PROXY_URL } from './config.js?v=202610291538';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291538';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291538';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291538';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291538';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291538';
+import { findCodes, codeName } from './codes.js?v=202610291538';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1404,11 +1404,8 @@ function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블)
   ghost.className = 'bubble bub-ghost';
   ghost.innerHTML = o.from.innerHTML;
   ghost.style.setProperty('--c', o.from.style.getPropertyValue('--c') || 'var(--accent)');
-  const tip = document.createElement('em');
-  tip.className = 'gh-tip';
-  ghost.append(tip);
   document.body.append(ghost);
-  S.bd = { ...o, srcDate: S.selected, ...c, me, H, ghost, tip, w: ghost.offsetWidth, h: ghost.offsetHeight, target: null, spring: null };
+  S.bd = { ...o, srcDate: S.selected, ...c, me, H, ghost, w: ghost.offsetWidth, h: ghost.offsetHeight, target: null, spring: null };
   me?.el.classList.add('lifted');
   o.card?.classList.add('lifted');
   $('#dragTrash')?.classList.add('show');
@@ -1439,7 +1436,6 @@ function bdMove(x, y) {
   const g = S.bd;
   if (!g) return;
   g.x = x; g.y = y;
-  g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 30}px)`;
   document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
   const trash = $('#dragTrash'), tb = trash?.getBoundingClientRect();
   const overTrash = !!tb && x >= tb.left - 20 && x <= tb.right + 20 && y >= tb.top - 20 && y <= tb.bottom + 20;
@@ -1448,7 +1444,7 @@ function bdMove(x, y) {
   if (overTrash) t = { trash: true };
   else {
     const tab = document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date]'));
-    if (tab) { t = { date: tab.dataset.date }; tab.classList.add('drop-tab'); }
+    if (tab) { t = { date: tab.dataset.date, tab }; tab.classList.add('drop-tab'); }
     else if (topLayer() === 'list') {
       const lv = $('#listView').getBoundingClientRect(), trayTop = $('#favTray')?.getBoundingClientRect().top ?? innerHeight;
       if (y > lv.top && y < Math.min(lv.bottom, trayTop)) {
@@ -1465,10 +1461,13 @@ function bdMove(x, y) {
   } else if (g.spring) { clearTimeout(g.spring.timer); g.spring = null; }
   g.target = t;
   bdShift(g, t?.index ?? null);
-  g.tip.textContent = !t ? '여기엔 못 놓아요'
-    : t.trash ? (g.kind === 'item' ? '놓으면 일정에서 지우기' : '놓으면 가볼 곳에서 빼기')
-    : t.date ? (t.date === S.selected ? `${dayLabel(t.date)}에 넣기` : `${dayLabel(t.date)}로 넘어가는 중…`)
-    : `${t.index + 1}번째로`;
+  // 날짜 탭 위에선 버블이 작아지며 그 날짜에 쏙 붙음 (그 날에 들어간다는 표시), 못 놓는 곳에선 흐리게
+  if (t?.date) {
+    const r = t.tab.getBoundingClientRect();
+    g.ghost.style.transform = `translate(${r.left + r.width / 2 - g.w / 2}px, ${r.top + r.height / 2 - g.h / 2}px) scale(.55)`;
+  } else g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 30}px)`;
+  g.ghost.classList.toggle('on-tab', !!t?.date);
+  g.ghost.classList.toggle('nodrop', !t);
 }
 function bdSwitchDay(date) {
   const g = S.bd;
@@ -1517,14 +1516,14 @@ function bdEnd(cancel) {
   if (g.kind === 'wish') {
     reset();
     if (t.trash) removeWish(g.fav);
-    else if (t.date) placeNew(t.date, null, g.fav);
+    else if (t.date) { placeNew(t.date, null, g.fav); tabPop(t.date); }
     else { const list = curDay()?.items || []; placeNew(S.selected, keepStart(list, bdItemIndex(g, t.index, list)), g.fav); }
     return;
   }
   const from = S.plan.days.find(x => x.date === g.srcDate), it = from?.items[g.i];
   if (!it) { reset(); return; }
   if (t.trash) { reset(); trashItem(from, g.i); return; }
-  if (t.date) { reset(); moveItemToDay(g.srcDate, it.id, t.date); return; }
+  if (t.date) { reset(); if (moveItemToDay(g.srcDate, it.id, t.date)) tabPop(t.date); return; }
   const to = ensureDay(S.selected), list = to.items.filter(x => x !== it), at = it.auto ? bdItemIndex(g, t.index, list) : keepStart(list, bdItemIndex(g, t.index, list));
   list.splice(at, 0, it);
   if (to === from && list.every((x, k) => x === from.items[k])) { reset(); return; } // 제자리
@@ -1563,6 +1562,12 @@ function setupBoardDrag() {
   window.addEventListener('pointercancel', () => bdEnd(true));
   window.addEventListener('touchmove', e => { if (S.bd && e.cancelable) e.preventDefault(); }, { passive: false });
 }
+function tabPop(date) {
+  const tab = document.querySelector(`#dayTabs [data-date="${date}"]`);
+  if (!tab) return;
+  tab.classList.remove('got'); void tab.offsetWidth; tab.classList.add('got');
+  setTimeout(() => tab.classList.remove('got'), 700);
+}
 function removeWish(fav) {
   S.favs = S.favs.filter(f => f !== fav); saveFavs(); renderTray();
   toast(`🗑 ${fav.place} 가볼 곳에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(fav); saveFavs(); rerenderKeep(); } });
@@ -1594,7 +1599,7 @@ function peekHtml(d, i) {
   return `<div class="pk-card" data-act="peekOpen" data-i="${i}" style="--c:${placeColor(i, state)}">
       <div class="pk-top"><span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b></div>
       <div class="pk-lines">${lines.join('')}</div>
-      ${boardMode() ? `<div class="pk-acts"><button data-act="nav" data-i="${i}">🧭 길찾기</button><button data-act="peekOpen" data-i="${i}">✏️ 자세히</button>${done ? '' : `<button data-act="peekDone" data-i="${i}">✓ 다녀옴</button>`}</div>`
+      ${boardMode() ? `<div class="pk-acts">${hasPos(it) ? `<button data-act="nav" data-i="${i}">🧭 길찾기</button>` : `<button data-act="fixPlace" data-i="${i}">📍 위치 고르기</button>`}<button data-act="peekOpen" data-i="${i}">✏️ 자세히</button>${done ? '' : `<button data-act="peekDone" data-i="${i}">✓ 다녀옴</button>`}</div>`
         : '<div class="pk-hint">눌러서 자세히 보기 · 누른 채로 끌면 순서 바꾸기</div>'}
     </div>`;
 }
@@ -3520,7 +3525,26 @@ const FAR_KM = 300; // 같은 날 다른 장소들에서 이보다 멀면 잘못
 function anchorFor(d, it) {
   const i = d.items.indexOf(it);
   const byDist = d.items.map((x, k) => [x, Math.abs(k - i)]).filter(([x]) => x !== it && hasPos(x)).sort((a, b) => a[1] - b[1]);
-  return byDist.length ? byDist[0][0] : null;
+  if (byDist.length) return byDist[0][0];
+  // 그 날 위치 있는 곳이 없으면 가까운 다른 날의 장소 근처에서 (해외 여행이면 국내 공항 등은 빼고)
+  const t0 = Date.parse(d.date);
+  for (const x of S.plan.days.filter(x => x !== d).sort((a, b) => Math.abs(Date.parse(a.date) - t0) - Math.abs(Date.parse(b.date) - t0))) {
+    const p = x.items.find(y => hasPos(y) && inTripArea(y));
+    if (p) return p;
+  }
+  return null;
+}
+// 해외 여행이면 우리나라 밖, 국내 여행이면 우리나라 안 (모르면 다 됨)
+const inTripArea = p => ({ abroad: !inKorea(p), domestic: inKorea(p) }[S.plan.trip?.kind] ?? true);
+// 근처에 기준 삼을 장소가 하나도 없을 때 이름만으로 찾기: 결과가 여러 도시에 흩어져 있으면(자라 매장처럼 흔한 이름) 고르지 않음
+async function soleMatch(it) {
+  const key = gkey();
+  for (const q of [...new Set([it.nameEn, it.place].filter(Boolean))]) {
+    if (!key) await sleep(1100);
+    const list = (key ? await searchPlaces(key, q, null) : await searchPlacesFree(q)).filter(inTripArea);
+    if (list.length) return list.every(r => haversine(list[0], r) < 30000) ? list[0] : { unsure: true };
+  }
+  return { unsure: true };
 }
 
 // 하루 장소들의 가운데(위도·경도 각각의 중앙값)
@@ -3592,13 +3616,27 @@ async function locate(it, anchor) {
 }
 
 let geocoding = false, geocodeAgain = false;
+const unsureSeen = new Set(); // 어디인지 몰라 비워 둔 곳 (앱을 다시 열 때까지 또 묻지 않음)
+// 위치 고르기: 수정 창을 열고 장소 이름으로 바로 검색해 둠 → 결과에서 고르기만
+function pickPlace(date, id) {
+  if (S.selected !== date) selectDay(date, true);
+  const d = curDay(), i = d ? d.items.findIndex(x => x.id === id) : -1;
+  if (i < 0) return;
+  closePeek();
+  const it = d.items[i];
+  openEditor(i, it.id);
+  S.sheet.query = it.place || it.address;
+  renderSheet(); // 검색칸에 이름을 먼저 채운 뒤 검색
+  edSearch('dest');
+}
 async function geocodeMissing() {
   // 찾는 중에 새 일정을 불러오면, 지금 것이 끝난 뒤 새 일정으로 한 번 더
   if (geocoding) { geocodeAgain = true; return; }
   geocoding = true;
   const plan = S.plan;
   try {
-    let fixed = dropFarPlaces(), found = 0, failed = 0;
+    let fixed = dropFarPlaces(), found = 0, failed = 0, last = null;
+    const unsure = [];
     // 두 번까지: 처음 찾은 결과가 그날 다른 장소들과 동떨어지면 지우고 한 번 더
     for (let pass = 0; pass < 2; pass++) {
       const todo = S.plan.days.flatMap(d => d.items.filter(it => !hasPos(it)).map(it => [d, it]));
@@ -3607,12 +3645,13 @@ async function geocodeMissing() {
       let errors = 0, lastErr = null;
       for (const [k, [d, it]] of todo.entries()) {
         if (S.plan !== plan) return; // 다른 일정을 불러왔으면 그만
-        const q = it.address || it.place;
-        let g = S.geoCache[q];
+        const q = it.address || it.place, anchor = anchorFor(d, it), nameOnly = !anchor && !it.address;
+        if (nameOnly && unsureSeen.has(it.id)) continue; // 이번에 이미 "골라 주세요"라고 알린 곳
+        let g = nameOnly ? null : S.geoCache[q]; // 기준 없이 이름만이면 예전에 찾아 둔 결과도 다시 확인
         if (!g) {
           if (!gkey()) toast(`📍 장소 위치 찾는 중… ${k + 1}/${todo.length}`, 8000);
           try {
-            g = await locate(it, anchorFor(d, it));
+            g = nameOnly ? await soleMatch(it) : await locate(it, anchor);
             errors = 0;
           } catch (e) {
             // 한 곳이 실패해도 멈추지 않고 다음 장소로. 연속으로 계속 실패하면(인터넷 끊김 등) 잠시 멈춤
@@ -3622,10 +3661,11 @@ async function geocodeMissing() {
             continue;
           }
         }
+        if (g?.unsure) { unsure.push([d, it]); unsureSeen.add(it.id); continue; }
         if (!g) { failed++; continue; }
         S.geoCache[q] = g;
         it.lat = g.lat; it.lng = g.lng;
-        found++;
+        found++; last = [d, it, g];
         // 찾는 대로 바로 화면에 표시하고 저장 (다 끝날 때까지 기다리지 않게)
         if (d === curDay()) { recompute(); renderAll(false); }
         if (found % 3 === 0) { savePlan(); store.set('tg.geo', S.geoCache); }
@@ -3638,8 +3678,14 @@ async function geocodeMissing() {
     store.set('tg.geo', S.geoCache);
     savePlan();
     if (found) {
-      toast(fixed ? `잘못 찾았던 장소 ${fixed}곳을 다시 찾았어요` : `장소 ${found}곳의 위치를 찾았어요`, 4000);
+      // 한 곳이면 어디로 찾았는지 보여 주고, 아니면 바로 다른 곳 고르기
+      if (found === 1 && !fixed && last[2].address) toast(`📍 ${last[1].place} → ${last[2].address}`, 7000, { label: '다른 곳', fn: () => pickPlace(last[0].date, last[1].id) });
+      else toast(fixed ? `잘못 찾았던 장소 ${fixed}곳을 다시 찾았어요` : `장소 ${found}곳의 위치를 찾았어요`, 4000);
       recompute(); renderAll(true); prefetchLegs();
+    }
+    if (unsure.length) {
+      const [ud, ui] = unsure[0];
+      toast(`📍 ${unsure.length > 1 ? `${unsure.length}곳은` : `${ui.place}:`} 어디인지 확실하지 않아서 위치를 비워 뒀어요`, 8000, { label: '골라 주기', fn: () => pickPlace(ud.date, ui.id) });
     }
     if (failed) {
       // 무료 지도로 찾다가 실패: 초대 코드가 있으면 구글로 정확히 찾을 수 있다고 알려 주고 바로 입력 창
@@ -3783,15 +3829,7 @@ async function act(name, el) {
       break;
     }
     case 'suggestNav': { const r = S.sheet.results[+el.dataset.j]; openExternal(navUrl(null, r, 'WALK', r.name)); break; }
-    case 'fixPlace': {
-      // 위치 없는 장소: 수정 창을 열고 장소 이름으로 바로 검색해 둠 → 결과에서 고르기만
-      const it = d.items[i];
-      openEditor(i, it.id);
-      S.sheet.query = it.place || it.address;
-      renderSheet(); // 검색칸에 이름을 먼저 채운 뒤 검색
-      edSearch('dest');
-      break;
-    }
+    case 'fixPlace': pickPlace(S.selected, d.items[i].id); break;
     case 'tpOpen': case 'tpAmpm': case 'tpH': case 'tpM': case 'tpDone': case 'tpClear': tpAct(name, el); break;
     case 'files': openViewer(i, 0); break;
     case 'viewFile': openViewer(i, +el.dataset.k); break;

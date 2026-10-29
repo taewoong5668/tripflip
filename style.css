@@ -721,7 +721,11 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .bubble.done, .bubble.skip { opacity: .5; }
 .bubble.flash { animation: bflash 1.4s ease; }
 @keyframes bflash { 0%, 60% { box-shadow: 0 0 0 3px var(--accent); transform: scale(1.03); } 100% { transform: none; } }
-.bubble.bub-ghost { max-width: calc(100vw - 32px); width: max-content; }
+.bubble.bub-ghost { max-width: calc(100vw - 32px); width: max-content; transition: opacity .15s; }
+.bubble.bub-ghost.on-tab { transition: transform .16s cubic-bezier(.32,.72,0,1), opacity .15s; opacity: .92; }
+.bubble.bub-ghost.nodrop { opacity: .45; }
+#dayTabs .tab.got { animation: tabgot .6s cubic-bezier(.32,.72,0,1); }
+@keyframes tabgot { 0% { transform: scale(1.2); background: var(--accent); color: var(--on-accent); } 100% { transform: none; } }
 .row.peeked, .bubble.peeked { transform: scale(.97); opacity: .55; }
 /* 길게 누르면 뜨는 간략 정보 창 */
 .peek { position: fixed; inset: 0; z-index: 1200; background: color-mix(in srgb, var(--text) 22%, transparent); pointer-events: none; animation: fadein .18s ease; }
