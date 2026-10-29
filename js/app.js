@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292022';
-import { arrivalGuide } from './guides.js?v=202610292022';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292031';
+import { arrivalGuide } from './guides.js?v=202610292031';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610292022';
-import { createMap } from './map.js?v=202610292022';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292022';
-import { PROXY_URL } from './config.js?v=202610292022';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292022';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292022';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292022';
-import { tzOf } from './tz.js?v=202610292022';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292022';
-import { findCodes, codeName } from './codes.js?v=202610292022';
+} from './schedule.js?v=202610292031';
+import { createMap } from './map.js?v=202610292031';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292031';
+import { PROXY_URL } from './config.js?v=202610292031';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292031';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292031';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292031';
+import { tzOf } from './tz.js?v=202610292031';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292031';
+import { findCodes, codeName } from './codes.js?v=202610292031';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2457,6 +2457,14 @@ function applyPaper() {
     if (S.stack.includes('map')) { S.stack = S.stack.filter(x => x !== 'map'); applyLayers(); }
   } else { geocodeMissing(); prefetchLegs(); }
 }
+// 📄 일정만 보기는 누르는 즉시 적용 (아래 [저장]까지 안 내려가도)
+function togglePaper(on) {
+  S.settings = { ...S.settings, paper: on };
+  store.set('tg.settings', S.settings);
+  applyPaper();
+  recompute(); renderAll(false);
+  toast(on ? '📄 일정만 보기로 바꿨어요' : '🗺️ 위치·지도를 다시 켰어요');
+}
 function onPos(p) {
   S.pos = p;
   // 다음에 켤 때 바로 쓰도록 마지막 위치 기억 (1분에 한 번만 저장)
@@ -3306,7 +3314,7 @@ function settingsHtml() {
   const s = S.settings;
   return `<div class="sheet-head"><b>설정</b><button class="x" data-act="closeSheet">✕</button></div>
     <div class="reset-box"><div><b>🧪 시험용</b><div class="muted small">일정을 모두 지우고 처음 화면부터 다시 해 볼 때</div></div><button data-act="resetAsk">🗑 모든 일정 초기화</button></div>
-    <label class="check paper-opt"><input id="setPaper" type="checkbox" ${s.paper ? 'checked' : ''}> <span><b>📄 일정만 보기</b><br><span class="muted small">종이 일정표처럼 날짜·순서·메모만. 내 위치·지도·거리·장소 위치 찾기를 끄고, 메모를 크게 보여 줘요</span></span></label>
+    <label class="check paper-opt"><input id="setPaper" type="checkbox" ${s.paper ? 'checked' : ''}> <span><b>📄 일정만 보기</b><br><span class="muted small">종이 일정표처럼 날짜·순서·메모만. 내 위치·지도·거리·장소 위치 찾기를 끄고, 메모를 크게 보여 줘요. 누르면 바로 바뀌어요</span></span></label>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
     <div class="muted small">${PROXY_URL
       ? '비워 두어도 버블트립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
@@ -4237,6 +4245,7 @@ document.addEventListener('click', e => {
   if (tab) selectDay(tab.dataset.date, true);
 });
 document.addEventListener('input', e => { if (e.target.id === 'bubName') bubbleTyped(e.target.value); });
+document.addEventListener('change', e => { if (e.target.id === 'setPaper') togglePaper(e.target.checked); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch('dest'); }
   if (e.key === 'Enter' && e.target.id === 'qaIn' && !e.isComposing) { e.preventDefault(); qaSave(); }
