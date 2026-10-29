@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291642';
-import { arrivalGuide } from './guides.js?v=202610291642';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291652';
+import { arrivalGuide } from './guides.js?v=202610291652';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291642';
-import { createMap } from './map.js?v=202610291642';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291642';
-import { PROXY_URL } from './config.js?v=202610291642';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291642';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291642';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291642';
-import { tzOf } from './tz.js?v=202610291642';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291642';
-import { findCodes, codeName } from './codes.js?v=202610291642';
+} from './schedule.js?v=202610291652';
+import { createMap } from './map.js?v=202610291652';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291652';
+import { PROXY_URL } from './config.js?v=202610291652';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291652';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291652';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291652';
+import { tzOf } from './tz.js?v=202610291652';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291652';
+import { findCodes, codeName } from './codes.js?v=202610291652';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1367,7 +1367,7 @@ function boardHtml(d, date) {
   let top = '';
   if (today && n) {
     const hi = states.indexOf('here'), ni = states.indexOf('next');
-    const nd = ni >= 0 && hasPos(items[ni]) ? ` · <span data-bd="${ni}">${bubDist(items[ni])}</span>` : '';
+    const nd = ni >= 0 && hasPos(items[ni]) ? ` <span class="nb-dist" data-bd="${ni}">${bubDist(items[ni])}</span>` : ''; // 내 위치를 알면 "· 1.8km"
     const where = hi >= 0 ? `${esc(items[hi].place)}에 있어요` : ni >= 0 ? `다음은 ${esc(items[ni].place)}${nd}` : past.length === n ? '오늘 일정 끝' : '내 위치에서 출발';
     top = `<div class="now-bub">📍 지금 <b class="now-clock">${fmtClock(nowMinOf(date))}</b><span>${where}</span></div>`;
   }
@@ -2226,6 +2226,25 @@ function setupWebBack() {
   });
 }
 
+// 🧪 시험용: 모든 일정 초기화 (버블·추억은 남김). 누르면 무엇이 지워지는지 먼저 보여 주고 한 번 더 확인
+function resetHtml() {
+  const days = S.plan.days.filter(d => d.items.length), n = days.reduce((a, d) => a + d.items.length, 0);
+  const files = S.plan.days.reduce((a, d) => a + d.items.reduce((b, it) => b + (it.files?.length || 0), 0), 0);
+  return `<div class="exit-box"><div class="exit-icon">⚠️</div><b>모든 일정을 지울까요?</b>
+    <div class="reset-warn">${n ? `<b>${esc(S.plan.title || '내 여행')}</b> · ${days.length}일 · 장소 ${n}곳${files ? ` · 첨부 파일 ${files}개` : ''}` : '여행 날짜·설정한 여행'}과 진행 기록이 모두 지워지고 처음 화면으로 돌아가요.<br><b>되돌릴 수 없어요.</b></div>
+    <div class="muted small">🫧 버블과 📸 추억은 그대로 남아요.</div>
+    <div class="st-actions"><button class="danger-fill" data-act="resetAll">모두 지우기</button><button data-act="closeSheet">취소</button></div></div>`;
+}
+function resetAll() {
+  for (const d of S.plan.days) for (const it of d.items) (it.files || []).forEach(f => deleteFile(f.id).catch(() => {}));
+  S.plan = emptyPlan(); S.progress = {}; S.rest = null; S.snooze = []; S.dayBack = [];
+  savePlan(); saveProgress(); saveRest();
+  closeSheet(); selectDay(todayStr(), false);
+  if (S.tray) renderTray();
+  openHome();
+  toast('🗑 모든 일정을 지웠어요');
+}
+
 function exitHtml() {
   return `<div class="exit-box"><div class="exit-icon">🧳</div><b>트립플립을 종료할까요?</b>
     <div class="st-actions"><button class="primary" data-act="exitApp">종료</button><button data-act="closeSheet">취소</button></div></div>`;
@@ -2420,7 +2439,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -3229,6 +3248,7 @@ function inviteRejected() {
 function settingsHtml() {
   const s = S.settings;
   return `<div class="sheet-head"><b>설정</b><button class="x" data-act="closeSheet">✕</button></div>
+    <div class="reset-box"><div><b>🧪 시험용</b><div class="muted small">일정을 모두 지우고 처음 화면부터 다시 해 볼 때</div></div><button data-act="resetAsk">🗑 모든 일정 초기화</button></div>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
     <div class="muted small">${PROXY_URL
       ? '비워 두어도 트립플립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
@@ -3247,7 +3267,6 @@ function settingsHtml() {
       <button data-act="rename">여행 이름 바꾸기</button>
       <button data-act="home">🧳 처음 화면 · 새 여행 만들기</button>
       ${curDay() ? '<button data-act="resetProgress">이 날 진행 초기화</button><button data-act="clearRoutes">경로 다시 계산</button>' : ''}
-      ${S.plan.days.length ? '<button data-act="deletePlan" class="danger">모든 일정 삭제</button>' : ''}
     </div>`;
 }
 
@@ -4038,12 +4057,8 @@ async function act(name, el) {
       break;
     }
     case 'clearRoutes': S.legCache = {}; saveLegs(); recompute(); renderAll(false); prefetchLegs(); toast('경로를 다시 계산해요'); break;
-    case 'deletePlan':
-      if (!confirm('모든 일정과 기록을 지울까요?')) break;
-      S.plan = emptyPlan(); S.progress = {};
-      savePlan(); saveProgress(); closeSheet(); selectDay(todayStr(), false); scheduleAlarms(true);
-      openHome();
-      break;
+    case 'resetAsk': S.sheet = { type: 'reset' }; renderSheet(); break;
+    case 'resetAll': resetAll(); break;
     case 'dismissAlarm': dismissAlarm(); break;
     case 'exitApp': exitApp(); break;
     case 'wake': openWake(el.dataset.date || S.selected); break;

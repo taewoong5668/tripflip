@@ -299,6 +299,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .exit-box b { display: block; font-size: 19px; margin: 6px 0 4px; }
 .exit-icon { font-size: 34px; }
 .exit-box .st-actions { justify-content: center; }
+/* 🧪 시험용 모든 일정 초기화 */
+.reset-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-bottom: 14px; border: 1.5px dashed color-mix(in srgb, var(--danger) 55%, transparent); border-radius: 14px; background: var(--danger-soft, transparent); }
+.reset-box button { flex: none; padding: 9px 12px; border: 0; border-radius: 999px; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; }
+.reset-warn { margin: 6px 0 8px; font-size: 14px; line-height: 1.6; }
+.exit-box .reset-warn b { display: inline; font-size: inherit; margin: 0; }
+button.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 800; }
 .exit-box .st-actions button { min-width: 110px; }
 .progress { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
 
@@ -729,6 +735,7 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .b-ic { flex: none; font-size: 14px; }
 .b-dist { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .b-dist:empty { display: none; }
+.nb-dist:not(:empty)::before { content: "· "; }
 .b-ic.warn { color: var(--warn); }
 .bubble.here { box-shadow: 0 0 0 2px var(--ok), 0 3px 10px rgba(17,34,51,.1); }
 .bubble.next { box-shadow: 0 0 0 2px var(--accent), 0 3px 10px rgba(17,34,51,.1); }
