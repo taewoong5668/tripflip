@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291407';
-import { arrivalGuide } from './guides.js?v=202610291407';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291415';
+import { arrivalGuide } from './guides.js?v=202610291415';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291407';
-import { createMap } from './map.js?v=202610291407';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291407';
-import { PROXY_URL } from './config.js?v=202610291407';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291407';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291407';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291407';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291407';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291407';
-import { findCodes, codeName } from './codes.js?v=202610291407';
+} from './schedule.js?v=202610291415';
+import { createMap } from './map.js?v=202610291415';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291415';
+import { PROXY_URL } from './config.js?v=202610291415';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291415';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291415';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291415';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291415';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291415';
+import { findCodes, codeName } from './codes.js?v=202610291415';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
