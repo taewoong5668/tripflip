@@ -710,6 +710,7 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .hm-title { margin-top: 12px; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
 .hm-dday { margin-top: 8px; font-size: 84px; line-height: 1.05; font-weight: 900; letter-spacing: -0.025em;
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hm-dday.sm { font-size: 44px; } /* 끝난 여행: "다녀온 여행" */
 .hm-msg { margin-top: 8px; font-size: 17px; font-weight: 700; }
 .hm-range { margin-top: 10px; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .hm-go { margin-top: 34px; width: 100%; max-width: 280px; }

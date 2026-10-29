@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291704';
-import { arrivalGuide } from './guides.js?v=202610291704';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291807';
+import { arrivalGuide } from './guides.js?v=202610291807';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291704';
-import { createMap } from './map.js?v=202610291704';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291704';
-import { PROXY_URL } from './config.js?v=202610291704';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291704';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291704';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291704';
-import { tzOf } from './tz.js?v=202610291704';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291704';
-import { findCodes, codeName } from './codes.js?v=202610291704';
+} from './schedule.js?v=202610291807';
+import { createMap } from './map.js?v=202610291807';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291807';
+import { PROXY_URL } from './config.js?v=202610291807';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291807';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291807';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291807';
+import { tzOf } from './tz.js?v=202610291807';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291807';
+import { findCodes, codeName } from './codes.js?v=202610291807';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -256,7 +256,8 @@ function renderTabs() {
   $('#dayTabs').innerHTML = dates.map(date =>
     `<button class="tab ${date === S.selected ? 'on' : ''} ${date < t ? 'past' : ''}" data-date="${date}">${date === t ? '<span class="today-dot"></span>' : ''}${dayLabel(date)}</button>`).join('');
   $('#dayTabs').hidden = dates.length < 2;
-  $('#dayTabs .tab.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  // 버블을 끄는 중엔 그대로 둠: 고른 날을 가운데로 밀면 손가락 밑 날짜가 바뀌어 다음 날, 그다음 날로 계속 넘어감
+  if (!S.bd) $('#dayTabs .tab.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
 const urgency = ms => (ms < 0 ? 'danger' : ms < S.settings.lead * 60000 ? 'warn' : '');
@@ -1493,6 +1494,12 @@ function bdScroll() {
   const sc = $('#listView'), r = sc.getBoundingClientRect(), bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight);
   if (g.y > r.top && g.y < r.top + 56) { sc.scrollBy(0, -8); bdMove(g.x, g.y); }
   else if (g.y > bottom - 56 && g.y < bottom) { sc.scrollBy(0, 8); bdMove(g.x, g.y); }
+  // 날짜 탭 줄의 왼쪽·오른쪽 끝에 대고 있으면 탭이 옆으로 넘어감 (화면 밖 날짜로 옮길 때)
+  const tabs = $('#dayTabs'), tb = tabs && !tabs.hidden ? tabs.getBoundingClientRect() : null;
+  if (tb && g.y >= tb.top && g.y <= tb.bottom) {
+    if (g.x < tb.left + 40 && tabs.scrollLeft > 0) { tabs.scrollBy(-7, 0); bdMove(g.x, g.y); }
+    else if (g.x > tb.right - 40 && tabs.scrollLeft < tabs.scrollWidth - tabs.clientWidth - 1) { tabs.scrollBy(7, 0); bdMove(g.x, g.y); }
+  }
   g.raf = requestAnimationFrame(bdScroll);
 }
 // 보이는 자리(k번째) → 그 날 일정 목록에서 실제로 들어갈 자리 (옮기는 일정은 뺀 목록 기준)
@@ -3087,7 +3094,7 @@ function edSave() {
   const sh = S.sheet, dr = sh.draft;
   if (!dr.place) { toast(sh.trip ? '도착지를 골라 주세요' : '장소 이름을 적어 주세요'); return; }
   if (sh.trip && !originOf(sh)) { toast('내 위치를 아직 못 찾았어요. 출발지를 검색해서 골라 주세요', 4000); return; }
-  if (!hasPos(dr) && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return;
+  if (!hasPos(dr) && !sh.id && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return; // 이미 있던 곳(날짜만 옮기기 등)은 묻지 않음
   if (!sh.id && !sh.trip && sh.moveTo && sh.moveTo !== sh.date) { sh.date = sh.moveTo; sh.autoIndex = true; } // 새 일정을 다른 날에
   const d = ensureDay(sh.date);
   const item = {
@@ -3458,12 +3465,13 @@ function homeDone() {
   const stage = tripStage(r, t), n = S.plan.days.reduce((k, d) => k + (d.date >= r.start && d.date <= r.end ? d.items.length : 0), 0);
   const kind = { domestic: '🏞️ 국내 여행', abroad: '✈️ 해외 여행' }[S.plan.trip?.kind] || '🧳 여행';
   const left = daysBetween(t, r.start), day = daysBetween(r.start, t) + 1;
-  const big = stage === 'during' ? `${day}일째` : `D-${left}`;
-  const msg = stage === 'during' ? '즐거운 여행 중이에요' : left === 1 ? '내일 여행이 시작돼요!' : `오늘부터 ${left}일 후 여행이 시작돼요`;
+  const ended = stage === 'none', ago = daysBetween(r.end, t); // 이미 끝난 여행 (지난 일정을 불러왔을 때)
+  const big = stage === 'during' ? `${day}일째` : ended ? '다녀온 여행' : `D-${left}`;
+  const msg = stage === 'during' ? '즐거운 여행 중이에요' : ended ? `${ago}일 전에 끝난 여행이에요` : left === 1 ? '내일 여행이 시작돼요!' : `오늘부터 ${left}일 후 여행이 시작돼요`;
   return `<div class="hm-done">
       <div class="hm-kind">${kind}</div>
       <div class="hm-title">${esc(S.plan.title || '내 여행')}</div>
-      <div class="hm-dday">${big}</div>
+      <div class="hm-dday ${ended ? 'sm' : ''}">${big}</div>
       <div class="hm-msg">${msg}</div>
       <div class="hm-range">${fmtRange(r)} · ${fmtNights(r)}<br><span class="muted">${n ? `일정 ${n}곳` : '아직 등록한 일정이 없어요'}</span></div>
       <button class="hm-go primary" data-act="hmView">${stage === 'during' ? '여행 펼쳐보기' : '일정 보기'}</button>
@@ -3492,7 +3500,7 @@ function homeBack() {
 function homeView() {
   const r = tripRange(S.plan), t = todayStr();
   closeHome();
-  selectDay(r && r.start > t ? r.start : pickInitialDay(), false);
+  selectDay(r && (r.start > t || r.end < t) ? r.start : pickInitialDay(), false); // 아직 안 했거나 끝난 여행은 첫날부터
   scrollToNow();
 }
 
