@@ -1,5 +1,5 @@
 // 즐겨찾기·추억(다녀온 곳) 데이터: 화면과 상관없는 계산만 (npm test로 점검)
-import { isHotel, isFlight } from './parser.js?v=202610291545';
+import { isHotel, isFlight } from './parser.js?v=202610291642';
 
 export const FAV_CATS = [
   { id: 'food', icon: '🍽', label: '맛집' },

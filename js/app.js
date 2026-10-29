@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291545';
-import { arrivalGuide } from './guides.js?v=202610291545';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291642';
+import { arrivalGuide } from './guides.js?v=202610291642';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291545';
-import { createMap } from './map.js?v=202610291545';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291545';
-import { PROXY_URL } from './config.js?v=202610291545';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291545';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291545';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291545';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291545';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291545';
-import { findCodes, codeName } from './codes.js?v=202610291545';
+} from './schedule.js?v=202610291642';
+import { createMap } from './map.js?v=202610291642';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291642';
+import { PROXY_URL } from './config.js?v=202610291642';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291642';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291642';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291642';
+import { tzOf } from './tz.js?v=202610291642';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291642';
+import { findCodes, codeName } from './codes.js?v=202610291642';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -67,11 +67,13 @@ function dayTz(date) {
   if (!tzCache.has(k)) tzCache.set(k, tzOf(p));
   return tzCache.get(k);
 }
-const dayStartTz = date => { const tz = dayTz(date); return tz ? zonedMidnight(date, tz) : dayStart(date); };
+// 시간은 언제나 지금 휴대폰 시각 기준 (여행지에 가면 휴대폰이 알아서 현지 시각으로 바뀜).
+// 그 날 시간대(dayTz)는 입국 안내·택시비처럼 "어느 나라인지"에만 씀
+const dayStartTz = date => dayStart(date);
 const atMs = (date, min) => dayStartTz(date) + min * 60000;
-// 실제 시각(ms)을 그 날 현지 시각 "HH:MM"으로
-const clockAt = (ms, date) => { const tz = date && dayTz(date); return tz ? clockIn(ms, tz) : clockOf(ms); };
-// 그 날 현지 시각으로 지금이 몇 분인지
+// 실제 시각(ms)을 휴대폰 시각 "HH:MM"으로
+const clockAt = ms => clockOf(ms);
+// 휴대폰 시각으로 지금이 그 날 몇 분째인지
 const nowMinOf = date => Math.floor((Date.now() - dayStartTz(date)) / 60000);
 const hasPos = p => !!p && p.lat != null && p.lng != null;
 const legKey = (a, b, mode) => `${mode}|${a.lat.toFixed(4)},${a.lng.toFixed(4)}|${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
@@ -242,8 +244,7 @@ function renderHeader() {
   if (!date) { $('#dayTitle').textContent = ''; return; }
   const [, m, dd] = date.split('-').map(Number);
   const w = '일월화수목금토'[new Date(dayStart(date)).getDay()];
-  const tz = dayTz(date), local = tz && tz !== deviceTz() ? ` · ${tzLabel(tz)}` : '';
-  $('#dayTitle').textContent = `${m}월 ${dd}일 ${w}요일${date === todayStr() ? ' · 오늘' : ''}${local}`;
+  $('#dayTitle').textContent = `${m}월 ${dd}일 ${w}요일${date === todayStr() ? ' · 오늘' : ''}`;
 }
 
 function renderTabs() {
@@ -379,9 +380,7 @@ function liveStep(d, i) {
       // 내릴 역이 가까워짐 → 한 번만 진동 + 알림
       if ((left <= 1 || rest < 1500) && !st.alerted[idx]) {
         st.alerted[idx] = true;
-        beep();
-        toast(`🔔 곧 ${sg.to}에서 내리세요`, 8000);
-        webNotify({ title: `🔔 곧 ${sg.to}에서 내리세요`, body: `${sg.line || ''} · ${it.place} 가는 길` });
+        toast(`🚉 곧 ${sg.to}에서 내리세요`, 8000); // 소리·휴대폰 알림 없이 화면에만
       }
     }
     text = `${sg.icon} ${esc(sg.line || '')}${sg.headsign ? ` <span class="muted-in">${esc(sg.headsign)} 방면</span>` : ''} · <b>${esc(sg.to)}</b>에서 내리세요${left ? ` · ${left}정거장 남음` : ' · 이번 역!'}`;
@@ -475,9 +474,9 @@ function renderStatus() {
   let html;
   if (rest) {
     // 😴 쉬는 중: 출발 알람·안내를 멈춤 (예약 일정 알람은 그대로)
-    html = `<div class="st-label" data-nofold>😴 쉬는 중 · 출발 알람을 멈췄어요</div>
+    html = `<div class="st-label" data-nofold>😴 쉬는 중</div>
       ${rest.day ? '<div class="st-title">오늘은 쉬는 날이에요</div>' : big('쉬기 끝까지', rest.until)}
-      ${todo(rest.day ? '예약해 둔 일정 알림만 울려요. 다시 움직일 때 [이제 출발]을 눌러 주세요' : `${clockAt(rest.until, d.date)}에 "이제 출발할까요?" 한 번만 알려 드려요`)}
+      ${todo(rest.day ? '다시 움직일 때 [이제 출발]을 눌러 주세요' : `${clockAt(rest.until)}까지 쉬어요. 다시 움직일 때 [이제 출발]을 눌러 주세요`)}
       <div class="st-actions"><button class="primary" data-act="restEnd">⏩ 이제 출발</button>${rest.day ? '' : '<button data-act="rest" data-m="30">+30분 더</button>'}</div>`;
   } else if (stuck) {
     // 🛏️ 위치로 보면 아직 그대로인데 시간표는 지나감 → 한 번 눌러서 고르기
@@ -1163,7 +1162,7 @@ function setRest(d, m) {
   const until = m === 'day' ? null : Math.max(Date.now(), resting(d)?.until || 0) + (+m) * 60000;
   S.rest = m === 'day' ? { date: d.date, day: true } : { date: d.date, until };
   saveRest(); renderStatus(); scheduleAlarms(true);
-  toast(m === 'day' ? '오늘은 쉬어요. 예약 일정 알림만 울려요' : `${clockAt(until, d.date)}까지 쉬어요. 출발 알람을 멈췄어요`, 5000);
+  toast(m === 'day' ? '오늘은 쉬어요' : `${clockAt(until)}까지 쉬어요`, 5000);
 }
 
 // 상태 카드: 평소엔 "출발까지 38:58"처럼 큰 숫자만, 누르면 아래로 펼쳐 자세히, 위로 쓸어 올리면 다시 접힘
@@ -1206,10 +1205,7 @@ function setupStatusFold() {
   }, { passive: true });
 }
 
-function wakeButton(d) {
-  const w = d.wake;
-  return `<button class="${w?.on ? 'wake-on' : 'primary'}" data-act="wake" data-date="${d.date}">⏰ ${w?.on ? `모닝콜 ${fmtClock(w.time)}` : '모닝콜 설정'}</button>`;
-}
+const wakeButton = () => ''; // 모닝콜은 알람과 함께 뺌
 
 // "a. 커피  b. 페이스트리" → ['커피', '페이스트리']
 const splitChips = t => t.split(/\s+(?=[a-zA-Z]\.\s)/).map(x => x.replace(/^[a-zA-Z]\.\s*/, '').trim()).filter(Boolean);
@@ -1245,7 +1241,7 @@ function notesHtml(it, i) {
 function dayHeaderHtml(d, done) {
   const n = d?.items.length || 0;
   const title = d?.title || (n ? `오늘의 동선 · ${n}곳` : '');
-  const wake = d?.wake?.on ? `<button class="progress wake" data-act="wake" data-date="${d.date}">⏰ ${fmtClock(d.wake.time)}</button>` : '';
+  const wake = '';
   return `<div class="day-head"><div><div class="t">${esc(title)}</div>${d?.subtitle ? `<div class="s">${esc(d.subtitle)}</div>` : ''}</div>
     <div class="head-pills">${wake}${n ? `<button class="progress" data-act="progSheet" aria-label="진행 상황 고치기">${done}/${n} 완료 ›</button>` : ''}</div></div>`;
 }
@@ -1358,19 +1354,22 @@ const addAreaHtml = n => (S.quickAdd ? `<div class="quick-add"><input id="qaIn" 
   : `<button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>`);
 
 // ---------- 🫧 버블 보드: 오전·오후만 나눈 판 위에 순서대로 버블. 오늘은 지금·내 위치 기준으로 앞으로 갈 곳만 ----------
+// 지금 내 위치에서 그곳까지 곧은 거리 (위치를 아직 모르면 빈칸). GPS가 바뀌면 updateDistances가 숫자만 고침
+const bubDist = it => { if (!S.pos || !hasPos(it)) return ''; const m = haversine(S.pos, it); return m < S.settings.radius ? '여기' : fmtDist(m); };
 const BOARD_SEC = { am: '오전 AM', pm: '오후 PM', late: '새벽 (다음 날)' };
 function boardHtml(d, date) {
   const items = d?.items || [], n = items.length, sched = S.cur.sched;
   const ph = n && isLive() ? phase(d) : null;
   const states = items.map((_, i) => itemState(d, i, ph));
-  const today = date === todayStr();
+  const today0 = todayStr(), today = date === today0;
   const past = today ? states.flatMap((st, i) => (st === 'done' || st === 'skip' ? [i] : [])) : [];
   const showPast = S.showPast === date;
   let top = '';
   if (today && n) {
     const hi = states.indexOf('here'), ni = states.indexOf('next');
-    const where = hi >= 0 ? `${esc(items[hi].place)}에 있어요` : ni >= 0 ? `다음은 ${esc(items[ni].place)}` : past.length === n ? '오늘 일정 끝' : '내 위치에서 출발';
-    top = `<div class="now-bub">📍 지금 <b>${fmtClock(nowMinOf(date))}</b><span>${where}</span></div>`;
+    const nd = ni >= 0 && hasPos(items[ni]) ? ` · <span data-bd="${ni}">${bubDist(items[ni])}</span>` : '';
+    const where = hi >= 0 ? `${esc(items[hi].place)}에 있어요` : ni >= 0 ? `다음은 ${esc(items[ni].place)}${nd}` : past.length === n ? '오늘 일정 끝' : '내 위치에서 출발';
+    top = `<div class="now-bub">📍 지금 <b class="now-clock">${fmtClock(nowMinOf(date))}</b><span>${where}</span></div>`;
   }
   if (past.length) top += `<button class="past-fold" data-act="showPast">${showPast ? '︿ 지난 곳 접기' : `✓ 지난 곳 ${past.length}곳 보기`}</button>`;
   let sec = '';
@@ -1382,8 +1381,9 @@ function boardHtml(d, date) {
     const label = sc !== sec ? `<div class="ampm">${BOARD_SEC[sc]}</div>` : '';
     sec = sc;
     const tag = st === 'here' ? '<span class="b-tag now">지금</span>' : st === 'next' ? '<span class="b-tag next">다음</span>' : '';
+    const dist = !done && date >= today0 && hasPos(it) ? `<span class="b-dist" data-bd="${i}">${bubDist(it)}</span>` : '';
     return `<div class="bslot" data-i="${i}">${label}<div class="bubble ${st}" data-act="bubTap" data-i="${i}" style="--c:${placeColor(i, st)}">
-      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
+      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${dist}${hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
   }).join('');
   const body = n ? slots : '<div class="board-empty">아래 <b>＋</b>로 적거나, ☆ <b>가볼 곳</b> 버블을 꾹 눌러 여기로 끌어 오세요</div>';
   return `<div class="board-head"><b>${dayLabel(date)}</b><span class="muted small">${n ? `${n}곳 · 꾹 눌러 끌면 순서 바꾸기` : ''}</span></div>
@@ -1996,6 +1996,7 @@ async function deleteAttachment() {
 function updateDistances() {
   const d = curDay();
   if (!d) return;
+  document.querySelectorAll('#timeline [data-bd]').forEach(el => { const it = d.items[+el.dataset.bd]; if (it) el.textContent = bubDist(it); });
   document.querySelectorAll('[data-dist]').forEach(el => {
     const it = d.items[+el.dataset.dist];
     if (!it) return;
@@ -2227,7 +2228,6 @@ function setupWebBack() {
 
 function exitHtml() {
   return `<div class="exit-box"><div class="exit-icon">🧳</div><b>트립플립을 종료할까요?</b>
-    <div class="muted small">예약한 출발 알람과 모닝콜은 앱을 닫아도 울려요.</div>
     <div class="st-actions"><button class="primary" data-act="exitApp">종료</button><button data-act="closeSheet">취소</button></div></div>`;
 }
 
@@ -3236,15 +3236,12 @@ function settingsHtml() {
     ${PROXY_URL ? `<div class="field">초대 코드 <span class="muted small">(지인 전용 구글 검색)</span>
       <div class="st-actions"><span class="muted small">${s.invite ? '✅ 입력됨' : '아직 없음 · 무료 지도로 동작 중'}</span><button data-act="invite">${s.invite ? '코드 바꾸기' : '코드 입력'}</button></div></div>` : ''}
     <label class="field">도착으로 인정할 거리 (m)<input id="setRadius" type="number" min="20" max="1000" value="${s.radius}"></label>
-    <label class="field">출발 몇 분 전에 미리 알림 (0이면 끔)<input id="setLead" type="number" min="0" max="120" value="${s.lead}"></label>
     <label class="field">예약 시간 전 여유 (분)<input id="setBuffer" type="number" min="0" max="60" value="${s.buffer}"></label>
-    <label class="check"><input id="setDetail" type="checkbox" ${s.detailList ? 'checked' : ''}> 예전 시간표 화면 쓰기 (시간·출발 알람·추천 칸 포함. 끄면 버블 보드)</label>
+    <label class="check"><input id="setDetail" type="checkbox" ${s.detailList ? 'checked' : ''}> 예전 시간표 화면 쓰기 (시간·추천 칸 포함. 끄면 버블 보드)</label>
     <label class="check"><input id="setSim" type="checkbox" ${s.sim ? 'checked' : ''}> 테스트 모드: 선택한 날을 오늘로 보고, 지도를 누른 곳을 내 위치로 사용</label>
     <div class="st-actions"><button class="primary" data-act="saveSettings">저장</button></div>
     <hr>
     <div class="st-actions wrap">
-      <button data-act="askNotify">알림 권한 허용</button>
-      <button data-act="testAlarm">10초 뒤 테스트 알람</button>
       <button data-act="load">📂 엑셀/CSV 일정 불러오기</button>
       <button data-act="guide">📄 일정 양식 · AI로 만들기</button>
       <button data-act="rename">여행 이름 바꾸기</button>
@@ -3261,7 +3258,6 @@ function saveSettings() {
     ...old,
     apiKey: $('#setKey').value.trim(),
     radius: Math.min(1000, Math.max(20, num('#setRadius', 100))),
-    lead: Math.min(120, Math.max(0, num('#setLead', 10))),
     buffer: Math.min(60, Math.max(0, num('#setBuffer', 5))),
     sim: $('#setSim').checked,
     detailList: $('#setDetail').checked,
@@ -3274,55 +3270,13 @@ function saveSettings() {
 }
 
 // ---------- 알람 ----------
-function buildAlarms() {
-  const list = [], lead = S.settings.lead;
-  for (const d of S.plan.days) {
-    const { legs, sched } = dayPlan(d);
-    const dn = Number(d.date.replace(/-/g, '').slice(2)); // yymmdd
-    const prog = S.progress[d.date] || {};
-    d.items.forEach((it, i) => {
-      const j = nextStopIdx(d, i), next = d.items[j];
-      if (!next || prog[it.id]?.dep || prog[it.id]?.skip) return;
-      // 출발 알람은 예약에 맞춰야 할 때만 (다음 장소가 시간이 정해진 일정). 자유 일정 사이는 알람 없음
-      if (!isFixedItem(d, j)) return;
-      const dep = atMs(d.date, sched[i].depart), m = MODES[next.mode];
-      // 쉬는 중: 쉬는 시간 안의 출발 알람은 빼고, "오늘은 쉬기"면 예약(시간 고정) 일정 알람만
-      const r = S.rest?.date === d.date ? S.rest : null;
-      if (r && (r.day ? next.time == null : dep < r.until)) return;
-      const body = `${next.place} ${fmtClock(next.time)} 예약 · ${it.place}에서 ${m.icon} ${fmtDur(legs[j].dur)}`;
-      const id = dn * 100 + i * 2, meta = { kind: 'depart', date: d.date, i };
-      if (lead > 0) list.push({ id, at: dep - lead * 60000, title: `⏰ ${lead}분 뒤 출발 (${clockAt(dep, d.date)})`, body, ...meta });
-      list.push({ id: id + 1, at: dep, title: '🚶 지금 출발하세요', body, ...meta });
-    });
-    if (S.rest?.date === d.date && S.rest.until) {
-      list.push({ id: dn * 100 + 96, at: S.rest.until, title: '😴 쉬는 시간이 끝났어요', body: '이제 출발할까요? 앱에서 [이제 출발]을 누르면 남은 일정을 다시 맞춰요', kind: 'restEnd', date: d.date });
-    }
-    // 모닝콜 (번호 97~99: 장소 알람과 겹치지 않게)
-    const w = d.wake;
-    if (w?.on && d.items.length) {
-      const at = atMs(d.date, w.time);
-      const body = `첫 출발 ${fmtClock(sched[0].depart)} · ${d.items[0].place}${d.title ? ` · ${d.title}` : ''}`;
-      list.push({ id: dn * 100 + 97, at, title: `☀️ 모닝콜 ${fmtClock(w.time)}`, body, wake: true });
-      if (w.snooze && !w.ack) {
-        list.push({ id: dn * 100 + 98, at: at + 5 * 60000, title: '☀️ 일어나세요! (5분 지남)', body, wake: true });
-        list.push({ id: dn * 100 + 99, at: at + 10 * 60000, title: '☀️ 일어나세요! (10분 지남)', body, wake: true });
-      }
-    }
-  }
-  for (const a of S.snooze || []) if (a.at > Date.now()) list.push(a);
-  return list;
-}
-
-let alarmTimer, alarmSig = '';
-function scheduleAlarms(force, extra = []) {
-  clearTimeout(alarmTimer);
-  alarmTimer = setTimeout(async () => {
-    const list = boardMode() ? [] : [...buildAlarms(), ...extra]; // 버블 보드에선 알람 없음
-    const sig = JSON.stringify(list.map(a => [a.id, a.at, a.body]));
-    if (!force && sig === alarmSig) return;
-    alarmSig = sig;
-    try { await Alarms.set(list); } catch (e) { toast(`알람 예약 실패: ${e.message}`, 5000); }
-  }, 500);
+// 알람은 모두 끔: 여행 중 엉뚱한 때(새벽, 이미 숙소인데 "출발하세요")에 울려서.
+// 예전 버전이 휴대폰에 예약해 둔 알림은 앱을 켤 때 한 번 지움
+let alarmsCleared = false;
+function scheduleAlarms() {
+  if (alarmsCleared) return;
+  alarmsCleared = true;
+  Alarms.set([]).catch(() => {});
 }
 
 function showAlarm(a) {
@@ -4364,9 +4318,9 @@ function checkTimeZone() {
   recompute();
   renderAll(false);
   scheduleAlarms(true);
-  toast('시간대가 바뀌어 알람을 현지 시간으로 다시 맞췄어요', 5000);
+  toast('휴대폰 시간대가 바뀌어 현지 시각으로 다시 맞췄어요', 5000);
 }
-// 앱을 다시 열면: 시간대 확인 + 지금 위치로 도착 다시 확인 + 알람 다시 예약 (이미 도착한 곳 알람이 울리지 않게)
+// 앱을 다시 열면: 시간대 확인 + 지금 위치를 새로 받아 어디쯤인지 다시 확인
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   checkTimeZone(); ackWake();
@@ -4462,8 +4416,8 @@ async function init() {
   ackWake();
   setInvite(S.settings.invite);
   proxyHooks.onInviteRejected = inviteRejected;
-  if (S.plan.days.length) { geocodeMissing(); prefetchLegs(); scheduleAlarms(true); }
-  if (isNative) Alarms.requestPermission();
+  scheduleAlarms();
+  if (S.plan.days.length) { geocodeMissing(); prefetchLegs(); }
   // 지인 전용 구글 검색: 처음 한 번 초대 코드를 물어봄 (건너뛰면 무료 지도)
   if (PROXY_URL && !S.settings.apiKey && !S.settings.invite && !S.settings.inviteAsked) setTimeout(openInvite, 600);
 }
