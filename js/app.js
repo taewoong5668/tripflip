@@ -1,16 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291033';
-import { arrivalGuide } from './guides.js?v=202610291033';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291407';
+import { arrivalGuide } from './guides.js?v=202610291407';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291033';
-import { createMap } from './map.js?v=202610291033';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291033';
-import { PROXY_URL } from './config.js?v=202610291033';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291033';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291033';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291033';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291033';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291033';
+} from './schedule.js?v=202610291407';
+import { createMap } from './map.js?v=202610291407';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291407';
+import { PROXY_URL } from './config.js?v=202610291407';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291407';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291407';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291407';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291407';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291407';
+import { findCodes, codeName } from './codes.js?v=202610291407';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -757,7 +758,7 @@ async function openMemPhoto(key, k) {
   el.innerHTML = `<div class="vw-top"><button class="vw-btn" data-act="closeViewer" aria-label="닫기">✕</button>
       <div class="vw-title"><b>${esc(m.place)}</b><span>${dayLabel(m.date)}${n > 1 ? ` · ${k + 1}/${n}` : ''}</span></div>
       <button class="vw-btn" data-act="memPhotoDel" aria-label="사진 삭제">🗑</button></div>
-    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>
+    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>${vwTools()}
     ${n > 1 ? `<button class="vw-nav prev" data-act="memView" data-key="${ek}" data-k="${k - 1}" ${k === 0 ? 'disabled' : ''}>‹</button><button class="vw-nav next" data-act="memView" data-key="${ek}" data-k="${k + 1}" ${k === n - 1 ? 'disabled' : ''}>›</button>` : ''}`;
   const rec = await getFile(id).catch(() => null);
   const body = el.querySelector('.vw-body');
@@ -1395,7 +1396,7 @@ async function attachFiles(fileList) {
 async function openViewer(i, k) {
   const it = curDay()?.items[i], f = it?.files?.[k];
   if (!f) return;
-  S.viewer = { i, k };
+  S.viewer = { i, k, key: f.id };
   const el = $('#viewer'), n = it.files.length;
   el.hidden = false;
   el.innerHTML = `<div class="vw-top">
@@ -1403,7 +1404,7 @@ async function openViewer(i, k) {
       <div class="vw-title"><b>${esc(f.name)}</b><span>${esc(it.place)}${n > 1 ? ` · ${k + 1}/${n}` : ''}</span></div>
       <button class="vw-btn" data-act="delFile" aria-label="첨부 삭제">🗑</button>
     </div>
-    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>
+    <div class="vw-body"><div class="muted pad">불러오는 중…</div></div>${vwTools()}
     ${n > 1 ? `<button class="vw-nav prev" data-act="vwPrev" ${k === 0 ? 'disabled' : ''}>‹</button><button class="vw-nav next" data-act="vwNext" ${k === n - 1 ? 'disabled' : ''}>›</button>` : ''}`;
   const body = el.querySelector('.vw-body');
   const rec = await getFile(f.id).catch(() => null);
@@ -1415,6 +1416,76 @@ async function openViewer(i, k) {
   } else {
     body.innerHTML = `<img src="${blobUrl(rec.blob)}" alt="${esc(f.name)}">`;
   }
+  scanCodes(f.id, [...body.querySelectorAll('img, canvas')]);
+}
+
+// 크게 보기 아래 도구: 축소·배율·확대, QR·바코드가 있으면 그것만 크게 보기
+const vwTools = () => `<div class="vw-tools">
+    <button class="vw-btn" data-act="vwZoom" data-z="-1" aria-label="축소">−</button>
+    <button class="vw-zl" data-act="vwZoom" data-z="0" aria-label="원래 크기">100%</button>
+    <button class="vw-btn" data-act="vwZoom" data-z="1" aria-label="확대">+</button>
+    <button class="vw-code" data-act="vwCodes" hidden></button>
+  </div>`;
+
+// 확대·축소: 두 손가락 벌리기, 두 번 톡, +/− 버튼, (컴퓨터) Ctrl+휠. 확대하면 끌어서 이리저리 보기
+const ZMAX = 6;
+const vwBody = () => $('#viewer .vw-body');
+const zoomEls = b => [...b.querySelectorAll(':scope > img, :scope > canvas')];
+function setZoom(z, fx, fy) {
+  const v = S.viewer, b = vwBody();
+  if (!v || !b || !zoomEls(b).length) return;
+  z = Math.min(ZMAX, Math.max(1, z));
+  if (Math.abs(z - 1) < 0.04) z = 1;
+  const old = v.z || 1, r = b.getBoundingClientRect();
+  fx ??= r.width / 2; fy ??= r.height / 2; // 손가락(또는 화면 가운데) 아래 지점을 그대로 둔 채 키움
+  const cx = (b.scrollLeft + fx) / old, cy = (b.scrollTop + fy) / old;
+  if (old === 1) for (const el of zoomEls(b)) el.dataset.bw = el.getBoundingClientRect().width;
+  v.z = z;
+  b.classList.toggle('zoomed', z > 1);
+  for (const el of zoomEls(b)) el.style.width = z > 1 ? `${el.dataset.bw * z}px` : '';
+  b.scrollLeft = cx * z - fx; b.scrollTop = cy * z - fy;
+  const zl = $('#viewer .vw-zl');
+  if (zl) zl.textContent = `${Math.round(z * 100)}%`;
+}
+
+// 첨부 속 QR·바코드 찾기 (한 번 찾은 건 기억). 찾으면 "크게" 버튼이 나타남
+const codeCache = new Map();
+async function scanCodes(key, srcs) {
+  let found = codeCache.get(key);
+  if (!found) {
+    found = [];
+    for (const s of srcs) {
+      if (s.tagName === 'IMG') await s.decode?.().catch(() => {});
+      found.push(...await findCodes(s).catch(() => []));
+    }
+    codeCache.set(key, found);
+    if (codeCache.size > 30) codeCache.delete(codeCache.keys().next().value);
+  }
+  if (S.viewer?.key !== key) return;
+  S.viewer.codes = found;
+  const btn = $('#viewer [data-act="vwCodes"]');
+  if (!btn || !found.length) return;
+  const names = [...new Set(found.map(c => codeName(c.format)))].join('·');
+  btn.textContent = `🔳 ${names} 크게${found.length > 1 ? ` (${found.length})` : ''}`;
+  btn.hidden = false;
+}
+
+function showCodes() {
+  const v = S.viewer;
+  if (!v?.codes?.length) return;
+  v.codesOn = true;
+  const names = [...new Set(v.codes.map(c => codeName(c.format)))].join('·');
+  const box = document.createElement('div');
+  box.className = 'vw-codes';
+  box.innerHTML = `<div class="vw-top"><button class="vw-btn" data-act="vwCodesOff" aria-label="원래대로">‹</button>
+      <div class="vw-title"><b>${names}</b><span>화면 밝기를 최대로 올리면 더 잘 찍혀요</span></div></div>
+    <div class="vwc-list">${v.codes.map(c => `<figure class="vwc ${c.two ? 'sq' : 'bar'}"><img src="${c.url}" alt="${esc(codeName(c.format))}">
+      ${c.text ? `<figcaption>${esc(c.text)}</figcaption>` : ''}</figure>`).join('')}</div>`;
+  $('#viewer').append(box);
+}
+function hideCodes() {
+  if (S.viewer) S.viewer.codesOn = false;
+  $('#viewer .vw-codes')?.remove();
 }
 
 function closeViewer() {
@@ -1639,7 +1710,7 @@ const canGoBack = () => !$('#alarm').hidden || !!S.viewer || S.pick || !!S.sheet
 // 휴대폰 뒤로 가기: 바로 전 화면으로. 첫 화면이면 종료할지 물어봄 (앱에서만)
 function goBack() {
   if (!$('#alarm').hidden) { dismissAlarm(); return; }
-  if (S.viewer) { closeViewer(); return; }
+  if (S.viewer) { if (S.viewer.codesOn) hideCodes(); else closeViewer(); return; }
   if (S.memMap) { closeMemMap(); return; }
   if (S.pick) { finishPick(); return; }
   if (S.sheet) { closeSheet(); return; }
@@ -3308,6 +3379,9 @@ async function act(name, el) {
     case 'closeViewer': closeViewer(); break;
     case 'vwPrev': openViewer(S.viewer.i, S.viewer.k - 1); break;
     case 'vwNext': openViewer(S.viewer.i, S.viewer.k + 1); break;
+    case 'vwZoom': { const d = +el.dataset.z; setZoom(d ? (S.viewer?.z || 1) * (d > 0 ? 1.5 : 1 / 1.5) : 1); break; }
+    case 'vwCodes': showCodes(); break;
+    case 'vwCodesOff': hideCodes(); break;
     case 'delFile': deleteAttachment(); break;
     case 'attach':
       if (el.dataset.target === 'draft') { syncDraft(); S.attachTo = { draft: true }; } else S.attachTo = { i };
@@ -3570,9 +3644,9 @@ const EASE = 'cubic-bezier(.32,.72,0,1)'; // 아이폰 화면 전환과 비슷�
 let swipedAt = 0;
 
 // 드래그 공통: 가로/세로 방향을 먼저 정하고, 정해진 방향일 때만 처리
-function dragTracker(el, { onMove, onEnd, axis: want, holdY }) {
+function dragTracker(el, { onMove, onEnd, axis: want, holdY, skip }) {
   let st = null;
-  const begin = (x, y) => { st = { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
+  const begin = (x, y) => { st = skip?.() ? null : { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
   const move = (x, y, e) => {
     if (!st) return;
     if (S.drag) { st = null; return; } // 일정 끌어서 옮기는 중엔 화면 넘기기 안 함
@@ -3589,7 +3663,7 @@ function dragTracker(el, { onMove, onEnd, axis: want, holdY }) {
     const s = st; st = null;
     if (s.axis === want) onEnd(s, (Date.now() - s.t) || 1);
   };
-  el.addEventListener('touchstart', e => begin(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  el.addEventListener('touchstart', e => e.touches.length > 1 ? (st = null) : begin(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
   el.addEventListener('touchmove', e => move(e.touches[0].clientX, e.touches[0].clientY, e), { passive: false });
   el.addEventListener('touchend', finish);
   el.addEventListener('touchcancel', () => (st = null));
@@ -3682,15 +3756,50 @@ $('#attachInput').addEventListener('change', async e => {
   await attachFiles(files);
 });
 
-// 첨부 크게 보기에서 좌우로 밀어 다음/이전 파일
+// 첨부 크게 보기에서 좌우로 밀어 다음/이전 파일 (확대했을 땐 끌기가 이리저리 보기라서 안 넘김)
 dragTracker($('#viewer'), {
   axis: 'x',
+  skip: () => (S.viewer?.z || 1) > 1 || !!S.viewer?.codesOn,
   onEnd(s) {
     if (!S.viewer || Math.abs(s.dx) < 60) return;
     const n = curDay()?.items[S.viewer.i]?.files?.length || 0, k = S.viewer.k + (s.dx < 0 ? 1 : -1);
     if (k >= 0 && k < n) openViewer(S.viewer.i, k);
   },
 });
+
+// 크게 보기 확대: 두 손가락 벌리기 / 두 번 톡 / Ctrl+휠
+{
+  const vw = $('#viewer');
+  let pinch = null, lastTap = 0;
+  const mid = (t, r) => [(t[0].clientX + t[1].clientX) / 2 - r.left, (t[0].clientY + t[1].clientY) / 2 - r.top];
+  const gap = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  vw.addEventListener('touchstart', e => {
+    if (e.touches.length === 2 && vwBody() && !S.viewer?.codesOn) pinch = { d: gap(e.touches), z: S.viewer?.z || 1 };
+  }, { passive: true });
+  vw.addEventListener('touchmove', e => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const [x, y] = mid(e.touches, vwBody().getBoundingClientRect());
+    setZoom(pinch.z * gap(e.touches) / pinch.d, x, y);
+  }, { passive: false });
+  vw.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; });
+  vw.addEventListener('click', e => {
+    const b = vwBody();
+    if (!b?.contains(e.target) || e.target.closest('button')) return;
+    const now = Date.now();
+    if (now - lastTap > 320) { lastTap = now; return; }
+    lastTap = 0;
+    const r = b.getBoundingClientRect();
+    setZoom((S.viewer?.z || 1) > 1 ? 1 : 2.5, e.clientX - r.left, e.clientY - r.top);
+  });
+  vw.addEventListener('wheel', e => {
+    const b = vwBody();
+    if (!e.ctrlKey || !b) return;
+    e.preventDefault();
+    const r = b.getBoundingClientRect();
+    setZoom((S.viewer?.z || 1) * (e.deltaY < 0 ? 1.2 : 1 / 1.2), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+}
 
 $('#fileInput').addEventListener('change', async e => {
   const f = e.target.files[0];

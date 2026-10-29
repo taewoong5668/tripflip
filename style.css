@@ -480,6 +480,19 @@ button.chip.poi:active { background: var(--accent-soft); }
 .vw-nav { position: absolute; top: 50%; width: 44px; height: 60px; border: 0; border-radius: 14px; background: rgba(255,255,255,.14); color: #fff; font-size: 28px; }
 .vw-nav.prev { left: 8px; } .vw-nav.next { right: 8px; }
 .vw-nav:disabled { opacity: .25; }
+/* 확대하면 원래 크기 제한을 풀고, 넘친 만큼 끌어서 보기 */
+.vw-body.zoomed > img, .vw-body.zoomed > canvas { max-width: none; max-height: none; flex-shrink: 0; margin-left: auto; margin-right: auto; }
+.vw-tools { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); flex-wrap: wrap; }
+.vw-zl { min-width: 58px; height: 40px; border: 0; border-radius: 12px; background: transparent; color: #fff; font-size: 13px; font-weight: 700; opacity: .85; }
+.vw-code { height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: #fff; color: #111; font-size: 14px; font-weight: 800; margin-left: 6px; }
+/* QR·바코드만 크게: 흰 바탕(찍는 기계가 잘 읽게), 화면 너비에 꽉 차게 */
+.vw-codes { position: absolute; inset: 0; z-index: 2; background: #fff; color: #111; display: flex; flex-direction: column; }
+.vw-codes .vw-btn { background: #eef0f4; color: #111; font-size: 22px; }
+.vwc-list { flex: 1; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); }
+.vwc { margin: auto 0; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.vwc img { image-rendering: pixelated; width: 100%; max-width: 520px; }
+.vwc.sq img { max-width: min(520px, 62vh); }
+.vwc figcaption { font-size: 15px; font-weight: 700; letter-spacing: .5px; text-align: center; word-break: break-all; user-select: text; }
 .toast {
   position: fixed; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 3000;
   background: rgba(18, 24, 38, .92); color: #fff; padding: 10px 16px; border-radius: 14px; font-size: 14px; font-weight: 600; max-width: 90vw; text-align: center;
