@@ -82,6 +82,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .layer.active + .layer[data-enter="bottom"].active, .layer.under:has(+ .layer[data-enter="bottom"].active) { transform: none; }
 .list-view { overflow-y: auto; overflow-x: hidden; padding: 4px 16px calc(28px + env(safe-area-inset-bottom)); box-shadow: none; }
 .day-page { min-height: 100%; }
+/* 옆 날짜 화면: 좌우로 밀 때 지금 화면 옆에 붙어서 같이 따라 들어옴 */
+.day-peek { position: absolute; inset: 0; z-index: 1; overflow: hidden; padding: 4px 16px 0; background: var(--bg); pointer-events: none; }
+.day-peek[hidden] { display: none; }
 .map { position: absolute; inset: 0; background: var(--card-2); }
 
 /* ---------- 간단한 일정 목록 ---------- */
@@ -560,6 +563,14 @@ button.chip.poi:active { background: var(--accent-soft); }
 #dragTrash.show { transform: translate(-50%, 0); opacity: 1; }
 #dragTrash.hot { background: var(--danger); color: #fff; border-style: solid; transform: translate(-50%, 0) scale(1.1); }
 #dragTrash .dt-icon { font-size: 22px; }
+/* 끄는 중 화면 옆 끝: 전날·다음 날로 넘어간다는 표시 (아래 막대가 차면 넘어감) */
+#edgeHint { position: fixed; top: 40%; z-index: 2600; overflow: hidden; padding: 12px 16px; border-radius: 999px; background: var(--hero); color: var(--on-hero); font-size: 14px; font-weight: 800; box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; }
+#edgeHint.left { left: 8px; }
+#edgeHint.right { right: 8px; }
+#edgeHint::after { content: ""; position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: var(--accent); transform-origin: left; animation: edgeFill .6s linear both; }
+#edgeHint.right::after { transform-origin: right; }
+#edgeHint[hidden] { display: none; }
+@keyframes edgeFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .toast-btn { flex: none; pointer-events: auto; padding: 7px 14px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 800; font-size: 13px; white-space: nowrap; }
 
 /* 진행 상황 고치기 */
@@ -739,6 +750,25 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 /* ---------- 🫧 버블 보드: 오전·오후만 나눈 판 위에 순서대로 버블 ---------- */
 .board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 2px 2px 10px; border-bottom: 2px solid var(--rule); margin-bottom: 14px; }
 .board-head b { font-size: 18px; font-weight: 800; }
+.bh-r { display: flex; align-items: center; gap: 8px; }
+.help-pill { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--muted); font-size: 12px; font-weight: 700; }
+/* 처음 한 번: 버블이 뭔지 */
+.bub-tip { display: grid; gap: 6px; padding: 14px 16px; margin-bottom: 12px; border-radius: 18px; background: var(--accent-soft); color: var(--text); font-size: 13.5px; line-height: 1.55; }
+.bub-tip > b { font-size: 15px; }
+.bt-acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+.bt-acts button { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 13px; font-weight: 700; }
+.bt-acts button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+/* ❔ 사용법 */
+.help-list { display: grid; margin: 4px 0 6px; }
+.hl { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--rule); }
+.hl:last-child { border-bottom: 0; }
+.hl-ic { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--card-2); display: grid; place-items: center; font-size: 17px; }
+.hl-ic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.hl b { display: block; font-size: 14.5px; }
+.hl small { display: block; margin-top: 2px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.hl small b { display: inline; font-size: inherit; color: var(--text); }
+.help-ok { flex: 1; padding: 12px; border: 0; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 800; }
+.set-help { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; width: 100%; margin: 10px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-weight: 700; text-align: left; }
 .now-bub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 12px 18px; margin-bottom: 12px; border-radius: 999px; background: var(--hero); color: var(--on-hero); font-size: 14px; box-shadow: var(--shadow); }
 .now-bub b { font-size: 16px; font-weight: 800; }
 .now-bub span { opacity: .85; }
@@ -747,7 +777,8 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .board.drop-in { outline: 2.5px dashed var(--accent); outline-offset: 6px; }
 .board-empty { padding: 26px 16px; border: 1.5px dashed var(--rule); border-radius: var(--radius); text-align: center; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .ampm { display: flex; align-items: center; gap: 10px; margin: 6px 2px 8px; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: var(--muted); }
-.ampm::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+.ampm::after { content: ""; flex: 1; height: 1px; background: var(--rule); order: 1; }
+.ampm-r { order: 2; font-weight: 700; letter-spacing: 0; } /* 거리 칸 머리글: 거리는 지금 내 위치에서 */
 .bslot { transition: transform .22s cubic-bezier(.32,.72,0,1); }
 .bslot.lifted { visibility: hidden; }
 .bubble { display: flex; align-items: center; gap: 10px; padding: 14px 18px 14px 12px; border-radius: 999px;
@@ -759,6 +790,10 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .bubble b { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .b-num { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--c); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
 .b-num.sq { border-radius: 10px; }
+.b-num { position: relative; }
+/* 숫자 옆 작은 그림 = 종류 (🍽 ☕ 🛍 🏛 🏨 🚉) */
+.b-cat { position: absolute; right: -10px; bottom: -8px; width: 22px; height: 22px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 3px rgba(17,34,51,.25); display: grid; place-items: center; font-size: 13px; font-style: normal; line-height: 1; }
+.bubble.done .b-cat, .bubble.skip .b-cat { filter: grayscale(1); opacity: .6; }
 .b-tag { flex: none; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; }
 .b-tag.now { background: var(--ok); color: #fff; }
 .b-tag.next { background: var(--accent-soft); color: var(--accent); }

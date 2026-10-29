@@ -1,5 +1,5 @@
 // 즐겨찾기·추억(다녀온 곳) 데이터: 화면과 상관없는 계산만 (npm test로 점검)
-import { isHotel, isFlight } from './parser.js?v=202610292031';
+import { isHotel, isFlight } from './parser.js?v=202610292158';
 
 export const FAV_CATS = [
   { id: 'food', icon: '🍽', label: '맛집' },
@@ -7,6 +7,7 @@ export const FAV_CATS = [
   { id: 'shop', icon: '🛍', label: '쇼핑' },
   { id: 'sight', icon: '🏛', label: '명소' },
   { id: 'stay', icon: '🏨', label: '숙소' },
+  { id: 'move', icon: '🚉', label: '교통' },
   { id: 'etc', icon: '📌', label: '기타' },
 ];
 export const catOf = id => FAV_CATS.find(c => c.id === id) || FAV_CATS.at(-1);
@@ -15,10 +16,11 @@ export const catOf = id => FAV_CATS.find(c => c.id === id) || FAV_CATS.at(-1);
 export function guessCat(name = '', hint = '') {
   const t = `${name} ${hint}`.toLowerCase();
   if (/hotel|호텔|숙소|리조트|resort|hostel|motel|suites?\b|스위트|airbnb|에어비앤비|apartments?\b/.test(t)) return 'stay';
+  if (/공항|airport|station|역(?:$|[\s(\d])|터미널|terminal|metro|subway|지하철|전철|정류장|정류소|bus stop|ferry|페리|선착장|기차|train|mtr\b|탑승|비행기|항공편|flight/.test(t) || isFlight(name)) return 'move';
   if (/cafe|café|coffee|카페|커피|bakery|베이커리|빵집|dessert|디저트|gelato|젤라또|tea house|찻집/.test(t)) return 'cafe';
   if (/market|마켓|시장|mall|몰\b|shop|store|쇼핑|outlet|아울렛|백화점|department|gift|기념품|qvb|arcade|아케이드/.test(t)) return 'shop';
-  if (/restaurant|레스토랑|식당|grill|그릴|\bbar\b|pub|펍|맛집|bistro|비스트로|kitchen|pizza|피자|burger|버거|sushi|스시|ramen|라멘|bbq|바베큐|steak|스테이크|seafood|해산물|diner|brunch|브런치|eatery|food|음식|야식|술집|izakaya|이자카야/.test(t)) return 'food';
-  if (/museum|박물관|미술관|gallery|갤러리|park|공원|beach|해변|비치|bridge|브릿지|다리|tower|타워|opera|오페라|garden|가든|zoo|동물원|aquarium|아쿠아리움|church|성당|교회|temple|사원|절\b|palace|궁|lookout|전망|harbou?r|하버|island|섬|cathedral|monument|기념|castle|성\b|view|뷰/.test(t)) return 'sight';
+  if (/restaurant|레스토랑|식당|grill|그릴|\bbar\b|pub|펍|맛집|bistro|비스트로|kitchen|pizza|피자|burger|버거|sushi|스시|ramen|라멘|bbq|바베큐|steak|스테이크|seafood|해산물|diner|brunch|브런치|eatery|food|음식|야식|술집|izakaya|이자카야|와플|waffle|딤섬|dim sum|dumpling|만두|국수|noodle|누들|쌀국수|pho|카레|curry|치킨|고깃집|삼겹|갈비|냉면|족발|떡볶이|분식|타코|taco|파스타|pasta|샌드위치|sandwich|햄버거|국밥|초밥|돈까스|돈카츠|우동|소바|훠궈|hot ?pot|차찬텡|cha chaan teng/.test(t)) return 'food';
+  if (/museum|박물관|미술관|gallery|갤러리|park|공원|beach|해변|비치|bridge|브릿지|다리|tower|타워|opera|오페라|garden|가든|zoo|동물원|aquarium|아쿠아리움|church|성당|교회|temple|사원|절\b|palace|궁|lookout|전망|명소|관광|attraction|landmark|harbou?r|하버|island|섬|cathedral|monument|기념|castle|성\b|view|뷰/.test(t)) return 'sight';
   return 'etc';
 }
 

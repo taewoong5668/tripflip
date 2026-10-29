@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292031';
-import { arrivalGuide } from './guides.js?v=202610292031';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292158';
+import { arrivalGuide } from './guides.js?v=202610292158';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610292031';
-import { createMap } from './map.js?v=202610292031';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292031';
-import { PROXY_URL } from './config.js?v=202610292031';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292031';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292031';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292031';
-import { tzOf } from './tz.js?v=202610292031';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292031';
-import { findCodes, codeName } from './codes.js?v=202610292031';
+} from './schedule.js?v=202610292158';
+import { createMap } from './map.js?v=202610292158';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292158';
+import { PROXY_URL } from './config.js?v=202610292158';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292158';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292158';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292158';
+import { tzOf } from './tz.js?v=202610292158';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292158';
+import { findCodes, codeName } from './codes.js?v=202610292158';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1081,7 +1081,9 @@ function setupTrayDrag(tray) {
 }
 
 // 즐겨찾기 → 새 일정 초안 (시간은 비워 둠: 예약이면 수정 창에서 시간을 정하면 됨)
-const favDraft = f => ({ ...blankPlace(), place: f.place, address: f.address || '', lat: f.lat ?? null, lng: f.lng ?? null, time: null, stay: 60, mode: 'TRANSIT', memo: '', notes: [] });
+const favDraft = f => ({ ...blankPlace(), place: f.place, address: f.address || '', lat: f.lat ?? null, lng: f.lng ?? null, time: null, stay: 60, mode: 'TRANSIT', memo: '', notes: [], ...(f.cat && f.cat !== 'etc' ? { cat: f.cat } : {}) });
+// 버블 안내를 봤음 (다시 안 띄움)
+function tipOk() { S.settings = { ...S.settings, bubTip: true }; store.set('tg.settings', S.settings); renderTimeline(); }
 
 // ---------- 아직 여기 있어요 · 다시 맞추기 · 쉬기 ----------
 S.rest = store.get('tg.rest', null); // { date, until(ms) } 또는 { date, day: true }
@@ -1267,10 +1269,11 @@ function dayNotesHtml(d) {
   return `<div class="day-notes">${out.join('')}</div>`;
 }
 
-function renderTimeline() {
-  const el = $('#timeline'), d = curDay(), date = S.selected;
+// el·peek: 좌우로 밀 때 옆에 같이 따라오는 옆 날짜 화면(dayPeek)도 이걸로 그림
+function renderTimeline(el = $('#timeline'), peek = false) {
+  const d = curDay(), date = S.selected;
   if (!date) { el.innerHTML = ''; return; }
-  if (S.bd && !S.bd.switching) return; // 버블을 끄는 중엔 다시 그리지 않음 (끄는 버블이 사라지지 않게)
+  if (S.bd && !S.bd.switching && !peek) return; // 버블을 끄는 중엔 다시 그리지 않음 (끄는 버블이 사라지지 않게)
   if (boardMode()) {
     const qa = $('#qaIn'), keep = qa && { v: qa.value, f: document.activeElement === qa };
     el.innerHTML = boardHtml(d, date);
@@ -1359,12 +1362,20 @@ const addAreaHtml = n => (S.quickAdd ? `<div class="quick-add"><input id="qaIn" 
 // ---------- 🫧 버블 보드: 오전·오후만 나눈 판 위에 순서대로 버블. 오늘은 지금·내 위치 기준으로 앞으로 갈 곳만 ----------
 // 지금 내 위치에서 그곳까지 곧은 거리 (위치를 아직 모르면 빈칸). GPS가 바뀌면 updateDistances가 숫자만 고침
 const bubDist = it => { if (!S.pos || !hasPos(it)) return ''; const m = haversine(S.pos, it); return m < S.settings.radius ? '여기' : fmtDist(m); };
+// 버블 숫자 옆 작은 그림 = 종류: 직접 고른 것, 없으면 이름(검색 결과의 종류)으로 짐작. 짐작이 "기타"면 안 붙임
+const itemCat = it => it.cat || guessCat(it.place, it.kind);
+function catIcon(it) {
+  const c = itemCat(it);
+  if (c === 'etc' && !it.cat) return '';
+  return c === 'move' && (AIRPORT_RE.test(it.place) || isFlight(it.place)) ? '✈️' : catOf(c).icon.replace(/\uFE0F?$/, '\uFE0F'); // 글자 모양(흑백)이 아니라 그림 이모지로
+}
 const BOARD_SEC = { am: '오전 AM', pm: '오후 PM', late: '새벽 (다음 날)' };
 function boardHtml(d, date) {
   const items = d?.items || [], n = items.length, sched = S.cur.sched, paper = paperMode();
   const ph = n && isLive() ? phase(d) : null;
   const states = items.map((_, i) => itemState(d, i, ph));
   const today0 = todayStr(), today = date === today0;
+  const distOn = !paper && date >= today0 && items.some(hasPos); // 거리 칸 머리글 (거리는 앞 장소가 아니라 지금 내 위치에서)
   const past = today ? states.flatMap((st, i) => (st === 'done' || st === 'skip' ? [i] : [])) : [];
   const showPast = S.showPast === date;
   let top = '';
@@ -1381,17 +1392,39 @@ function boardHtml(d, date) {
     if (past.includes(i) && !showPast) return '';
     const s = sched[i], t = s?.arrive ?? s?.depart;
     const sc = t == null ? sec || 'am' : t >= 1440 ? 'late' : t >= 720 ? 'pm' : 'am';
-    const label = sc !== sec && !paper ? `<div class="ampm">${BOARD_SEC[sc]}</div>` : ''; // 일정만 보기: 위치가 없어 시각을 어림할 수 없으니 오전·오후 없이 순서만
+    const label = sc !== sec && !paper ? `<div class="ampm">${BOARD_SEC[sc]}${!sec && distOn ? `<span class="ampm-r"${S.pos ? '' : ' hidden'}>📍 내 위치에서</span>` : ''}</div>` : ''; // 일정만 보기: 위치가 없어 시각을 어림할 수 없으니 오전·오후 없이 순서만
     sec = sc;
     const tag = st === 'here' ? '<span class="b-tag now">지금</span>' : st === 'next' ? '<span class="b-tag next">다음</span>' : '';
+    const ic = catIcon(it);
     const dist = !paper && !done && date >= today0 && hasPos(it) ? `<span class="b-dist" data-bd="${i}">${bubDist(it)}</span>` : '';
     const memo = paper && it.memo ? `<small class="b-memo">📝 ${esc(it.memo.split('\n')[0])}</small>` : ''; // 일정만 보기: 이름 아래 메모 첫 줄
     return `<div class="bslot" data-i="${i}">${label}<div class="bubble ${st}${memo ? ' has-memo' : ''}" data-act="bubTap" data-i="${i}" style="--c:${placeColor(i, st)}">
-      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${memo ? `<span class="b-name">${esc(it.place)}</span>${memo}` : esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${dist}${paper || hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
+      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}${ic ? `<i class="b-cat">${ic}</i>` : ''}</span><b>${memo ? `<span class="b-name">${esc(it.place)}</span>${memo}` : esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${dist}${paper || hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
   }).join('');
   const body = n ? slots : '<div class="board-empty">아래 <b>＋</b>로 적거나, ☆ <b>가볼 곳</b> 버블을 꾹 눌러 여기로 끌어 오세요</div>';
-  return `<div class="board-head"><b>${dayLabel(date)}</b><span class="muted small">${n ? `${n}곳 · 꾹 눌러 끌면 순서 바꾸기` : ''}</span></div>
-    ${top}<div class="board">${body}</div>${addAreaHtml(n)}`;
+  // 처음 한 번은 버블이 뭔지 알려 줌 (알겠어요를 누르면 다시 안 나옴)
+  const tip = n && !S.settings.bubTip ? `<div class="bub-tip"><b>🫧 버블 하나 = 가볼 곳 하나</b><span>위에서부터 숫자 순서대로 다녀요. <b>누르면</b> 길찾기·자세히, <b>꾹 눌러 끌면</b> 순서 바꾸기. 날짜 탭이나 화면 옆 끝으로 끌면 다른 날로, 🗑에 놓으면 지우기</span><div class="bt-acts"><button data-act="help">사용법 더 보기</button><button class="primary" data-act="tipOk">알겠어요</button></div></div>` : '';
+  return `<div class="board-head"><b>${dayLabel(date)}</b><span class="bh-r">${n ? `<span class="muted small">${n}곳</span>` : ''}<button class="help-pill" data-act="help">❔ 사용법</button></span></div>
+    ${tip}${top}<div class="board">${body}</div>${addAreaHtml(n)}`;
+}
+
+// ❔ 사용법: 버블·끌기·거리·종류 그림이 뭔지 한 장에
+function helpHtml() {
+  const tray = '<svg viewBox="0 0 24 24"><circle cx="9.5" cy="14" r="6.2"/><path d="M6.6 12.2a3.2 3.2 0 0 1 2.6-2.4"/><circle cx="17.6" cy="6.6" r="3.2"/><circle cx="18.6" cy="15.6" r="1.6"/></svg>';
+  const row = (ic, t, d) => `<div class="hl"><span class="hl-ic">${ic}</span><div><b>${t}</b><small>${d}</small></div></div>`;
+  return `<div class="sheet-head"><div><div class="st-label">버블트립</div><b>❔ 사용법</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <div class="help-list">
+      ${row('🫧', '버블 하나 = 가볼 곳 하나', '그 날 일정이 위에서부터 순서대로 버블로 놓여요. 숫자가 가는 순서예요.')}
+      ${row('👆', '누르면', '간단한 정보와 🧭 길찾기, ✏️ 자세히(메모·첨부·수정)')}
+      ${row('✊', '꾹 눌러 끌면 순서 바꾸기', '다른 버블이 비켜 줘요. 위 날짜 탭에 대거나 화면 왼쪽·오른쪽 끝에 잠깐 대고 있으면 그 날로 넘어가요. 아래 🗑에 놓으면 지우기 (바로 되돌릴 수 있어요)')}
+      ${row('↔️', '화면을 좌우로 밀면', '전날 · 다음 날')}
+      ${row('📍', '오른쪽 km', '지금 <b>내 위치</b>에서 그곳까지 곧은 거리예요 (앞 장소에서가 아니라)')}
+      ${row('⚠', '위치 없음', '지도에서 못 찾은 곳이에요. 눌러서 위치를 골라 주면 거리·길찾기가 돼요')}
+      ${row('🍽', '숫자 옆 작은 그림 = 종류', `${FAV_CATS.filter(c => c.id !== 'etc').map(c => `${c.icon} ${c.label}`).join(' · ')}. 이름으로 짐작하고, ✏️ 수정에서 바꿀 수 있어요`)}
+      ${row(tray, '가볼 곳 버블 (오른쪽 위 버튼)', '날짜를 아직 안 정한 가고 싶은 곳을 모아 두는 서랍이에요. 꾹 눌러 일정 위로 끌어 오면 들어가요')}
+      ${row('📄', '일정만 보기 (⚙ 설정)', '위치·지도 없이 종이 일정표처럼 날짜·순서·메모만')}
+    </div>
+    <div class="st-actions"><button class="primary help-ok" data-act="helpOk">알겠어요</button></div>`;
 }
 
 // 버블 끌기 (보드 위 버블·가볼 곳 버블 공통): 꾹 눌러 들면 다른 버블이 밀려나며 들어갈 자리를 비워 줌.
@@ -1413,7 +1446,7 @@ function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블)
   ghost.innerHTML = o.from.innerHTML;
   ghost.style.setProperty('--c', o.from.style.getPropertyValue('--c') || 'var(--accent)');
   document.body.append(ghost);
-  S.bd = { ...o, srcDate: S.selected, ...c, me, H, ghost, w: ghost.offsetWidth, h: ghost.offsetHeight, target: null, spring: null };
+  S.bd = { ...o, srcDate: S.selected, ...c, me, H, ghost, w: ghost.offsetWidth, h: ghost.offsetHeight, target: null, spring: null, x0: o.x, y0: o.y };
   me?.el.classList.add('lifted');
   o.card?.classList.add('lifted');
   $('#dragTrash')?.classList.add('show');
@@ -1447,6 +1480,7 @@ function bdMove(x, y) {
   const g = S.bd;
   if (!g) return;
   g.x = x; g.y = y;
+  if (!g.moved && Math.hypot(x - g.x0, y - g.y0) > 14) g.moved = true; // 꾹 누르기만 한 건 안 움직인 걸로 (자동 감기·날짜 넘기기 안 함)
   document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
   const trash = $('#dragTrash'), tb = trash?.getBoundingClientRect();
   const overTrash = !!tb && x >= tb.left - 20 && x <= tb.right + 20 && y >= tb.top - 20 && y <= tb.bottom + 20;
@@ -1456,7 +1490,7 @@ function bdMove(x, y) {
   else {
     const tab = document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date]'));
     if (tab) { t = { date: tab.dataset.date, tab }; tab.classList.add('drop-tab'); }
-    else if (topLayer() === 'list') {
+    else if (topLayer() === 'list' && !g.sliding) { // 날짜가 넘어가는 중엔 자리 안 고름
       const lv = $('#listView').getBoundingClientRect(), trayTop = $('#favTray')?.getBoundingClientRect().top ?? innerHeight;
       if (y > lv.top && y < Math.min(lv.bottom, trayTop)) {
         let k = bdIndex(g, y);
@@ -1468,7 +1502,7 @@ function bdMove(x, y) {
   }
   // 날짜 탭에 0.45초 대고 있으면 그 날 보드로 (손가락은 그대로 끌면서 자리 고르기)
   if (t?.date && t.date !== S.selected) {
-    if (g.spring?.date !== t.date) { clearTimeout(g.spring?.timer); const date = t.date; g.spring = { date, timer: setTimeout(() => bdSwitchDay(date), 450) }; }
+    if (g.spring?.date !== t.date) { clearTimeout(g.spring?.timer); const date = t.date; g.spring = { date, timer: setTimeout(() => bdSlideDay(date), 450) }; }
   } else if (g.spring) { clearTimeout(g.spring.timer); g.spring = null; }
   g.target = t;
   bdShift(g, t?.index ?? null);
@@ -1506,7 +1540,7 @@ function bdSwitchDay(date) {
   // 누르고 있는 버블이 다시 그려지며 사라지면 손가락 움직임을 못 받으니, 안 보이는 곳에 옮겨 둠
   if (g.from && $('#timeline').contains(g.from)) { g.holder = document.createElement('div'); g.holder.hidden = true; g.holder.append(g.from); document.body.append(g.holder); }
   g.switching = true;
-  selectDay(date, true);
+  selectDay(date, true, false, true); // 끌면서 넘긴 날도 밀어 넘긴 것처럼 뒤로 가기 기록은 한 번만
   g.switching = false;
   navigator.vibrate?.(15);
   Object.assign(g, bdCollect());
@@ -1514,14 +1548,50 @@ function bdSwitchDay(date) {
   g.me?.el.classList.add('lifted');
   bdMove(g.x, g.y);
 }
+// 끄는 중에 다른 날로: 좌우로 밀 때처럼 지금 날은 옆으로 밀려 나가고 그 날이 따라 들어온 뒤 바뀜
+function bdSlideDay(date) {
+  const g = S.bd;
+  if (!g || g.sliding || date === S.selected) return;
+  g.sliding = true;
+  bdShift(g, null);
+  slideDays(date > S.selected ? 1 : -1, date, () => {
+    g.sliding = false;
+    if (S.bd === g) bdSwitchDay(date);
+    else selectDay(date, true, false, true); // 넘어가는 중에 손을 뗐어도 보인 대로 그 날로
+  });
+}
+// 날짜 탭 순서대로 옆 날짜 (없으면 null)
+function tabNeighbor(dir) {
+  const dates = [...document.querySelectorAll('#dayTabs [data-date]')].map(b => b.dataset.date), k = dates.indexOf(S.selected);
+  return k < 0 ? null : dates[k + dir] || null;
+}
+// 화면 왼쪽·오른쪽 끝에 0.6초 대고 있으면 전날·다음 날로 (가장자리에 "‹ 10/30 (금)" 표시가 차오름)
+function bdEdge(g, dir) {
+  const to = dir ? tabNeighbor(dir) : null;
+  if ((g.edge?.date || null) === to) return;
+  clearTimeout(g.edge?.timer);
+  g.edge = to ? { date: to, timer: setTimeout(() => { g.edge = null; edgeHint(0); bdSlideDay(to); }, 600) } : null;
+  edgeHint(to ? dir : 0, to);
+}
+function edgeHint(dir, date) {
+  let el = $('#edgeHint');
+  if (!dir) { if (el) el.hidden = true; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'edgeHint'; document.body.append(el); }
+  el.className = dir < 0 ? 'left' : 'right';
+  el.textContent = dir < 0 ? `‹ ${dayLabel(date)}` : `${dayLabel(date)} ›`;
+  el.hidden = false;
+}
 function bdScroll() {
   const g = S.bd;
   if (!g) return;
-  // 아래쪽은 🗑 바로 위에서부터 내려 감기 (맨 끝 자리가 🗑에 가려 놓을 수 없으면 안 되니까)
-  const sc = $('#listView'), r = sc.getBoundingClientRect(), trash = $('#dragTrash')?.getBoundingClientRect();
-  const bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight, trash ? trash.top - 20 : innerHeight);
+  // 아래쪽은 🗑 바로 위에서부터 내려 감기 (맨 끝 자리가 🗑에 가려 놓을 수 없으면 안 되니까).
+  // 🗑은 아래에서 올라오는 중일 수 있어서 다 올라온 자리로 잼 (offsetTop은 움직이는 중인 transform을 안 셈).
+  // 올라오는 중인 자리로 재면 꾹 누르자마자 아래 감기가 켜져 목록이 쭉 내려가 버림
+  const sc = $('#listView'), r = sc.getBoundingClientRect(), trash = $('#dragTrash');
+  const bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight, trash?.classList.contains('show') ? trash.offsetTop - 20 : innerHeight);
   if (g.y <= bottom - 56) g.downOk = true; // 위에서 내려왔을 때만 아래로 감음 (맨 아래 버블·가볼 곳을 들고 올라갈 땐 안 감김)
-  if (g.y > r.top && g.y < r.top + 56) { sc.scrollBy(0, -8); bdMove(g.x, g.y); }
+  if (!g.moved || g.sliding) { /* 꾹 누르고 아직 안 움직였거나 날짜가 넘어가는 중이면 안 감음 */ }
+  else if (g.y > r.top && g.y < r.top + 56) { sc.scrollBy(0, -8); bdMove(g.x, g.y); }
   else if (g.downOk && g.y > bottom - 56 && g.y < bottom) { sc.scrollBy(0, 8); bdMove(g.x, g.y); }
   // 날짜 탭 줄의 왼쪽·오른쪽 끝에 대고 있으면 탭이 옆으로 넘어감 (화면 밖 날짜로 옮길 때)
   const tabs = $('#dayTabs'), tb = tabs && !tabs.hidden ? tabs.getBoundingClientRect() : null;
@@ -1529,6 +1599,7 @@ function bdScroll() {
     if (g.x < tb.left + 40 && tabs.scrollLeft > 0) { tabs.scrollBy(-7, 0); bdMove(g.x, g.y); }
     else if (g.x > tb.right - 40 && tabs.scrollLeft < tabs.scrollWidth - tabs.clientWidth - 1) { tabs.scrollBy(7, 0); bdMove(g.x, g.y); }
   }
+  bdEdge(g, g.moved && !g.sliding && topLayer() === 'list' && g.y > r.top && g.y < r.bottom ? (g.x < 30 ? -1 : g.x > innerWidth - 30 ? 1 : 0) : 0);
   g.raf = requestAnimationFrame(bdScroll);
 }
 // 보이는 자리(k번째) → 그 날 일정 목록에서 실제로 들어갈 자리 (옮기는 일정은 뺀 목록 기준)
@@ -1542,7 +1613,7 @@ function bdEnd(cancel) {
   const g = S.bd;
   if (!g) return;
   S.bd = null;
-  clearTimeout(g.spring?.timer); cancelAnimationFrame(g.raf);
+  clearTimeout(g.spring?.timer); clearTimeout(g.edge?.timer); cancelAnimationFrame(g.raf); edgeHint(0);
   g.ghost.remove(); g.holder?.remove(); g.card?.classList.remove('lifted');
   document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
   $('#dragTrash')?.classList.remove('show', 'hot');
@@ -2036,6 +2107,7 @@ function updateDistances() {
   const d = curDay();
   if (!d) return;
   document.querySelectorAll('#timeline [data-bd]').forEach(el => { const it = d.items[+el.dataset.bd]; if (it) el.textContent = bubDist(it); });
+  document.querySelectorAll('#timeline .ampm-r').forEach(el => (el.hidden = !S.pos));
   document.querySelectorAll('[data-dist]').forEach(el => {
     const it = d.items[+el.dataset.dist];
     if (!it) return;
@@ -2510,7 +2582,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml, tripName: tripNameHtml, memo: memoHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml, tripName: tripNameHtml, memo: memoHtml, help: helpHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -3086,6 +3158,7 @@ function editHtml(sh) {
 
   // 3) 장소 이름 · 메모
   html += `<label class="field">장소 이름<input id="edName" value="${esc(dr.place)}" placeholder="예: 숙소, 오페라하우스"></label>
+    <div class="field">종류 <span class="muted small">(버블 숫자 옆 그림)</span><div class="chips ed-cats">${FAV_CATS.map(c => `<button class="chip-btn ${c.id === itemCat(dr) ? 'on' : ''}" data-act="edCat" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join('')}</div></div>
     <label class="field">메모<textarea id="edMemo" rows="2" placeholder="예약 번호, 할 일 등">${esc(dr.memo)}</textarea></label>
     <div class="att-edit">
       ${(dr.files || []).map((f, k) => `<span class="att-chip">${isPdf(f) ? '📄' : '🖼️'} ${esc(f.name)}<button data-act="edFileDel" data-k="${k}" aria-label="첨부 빼기">✕</button></span>`).join('')}
@@ -3125,7 +3198,7 @@ async function edSearch(target = 'dest') {
 function edChoose(k) {
   syncDraft();
   const sh = S.sheet, r = sh.results[k];
-  Object.assign(sh.draft, { lat: r.lat, lng: r.lng, address: r.address });
+  Object.assign(sh.draft, { lat: r.lat, lng: r.lng, address: r.address, ...(r.kind ? { kind: r.kind } : {}) });
   if (!sh.draft.place || sh.draft.place === '선택한 위치' || sh.draft.place === '현재 위치') sh.draft.place = r.name;
   sh.results = null;
   renderSheet();
@@ -3161,6 +3234,8 @@ function edSave() {
     time: dr.time, stay: dr.stay || 0, mode: dr.mode, memo: dr.memo || '', notes: dr.notes || [], files: dr.files || [],
   };
   if (dr.auto) item.auto = true;
+  if (dr.cat) item.cat = dr.cat;   // 직접 고른 종류
+  if (dr.kind) item.kind = dr.kind; // 검색 결과의 종류 (예: 음식점) → 종류 짐작에 씀
   if (!sh.id && !sh.trip && sh.autoIndex) sh.index = insertIndexFor(d, item); // 날짜만 정했으면 시간 순서에 맞는 자리로
   if (sh.id && sh.moveTo && sh.moveTo !== sh.date) {
     sh.saved = true;
@@ -3314,6 +3389,7 @@ function settingsHtml() {
   const s = S.settings;
   return `<div class="sheet-head"><b>설정</b><button class="x" data-act="closeSheet">✕</button></div>
     <div class="reset-box"><div><b>🧪 시험용</b><div class="muted small">일정을 모두 지우고 처음 화면부터 다시 해 볼 때</div></div><button data-act="resetAsk">🗑 모든 일정 초기화</button></div>
+    <button class="set-help" data-act="help">❔ 사용법 보기 <span class="muted small">버블·끌기·거리 표시가 뭔지</span></button>
     <label class="check paper-opt"><input id="setPaper" type="checkbox" ${s.paper ? 'checked' : ''}> <span><b>📄 일정만 보기</b><br><span class="muted small">종이 일정표처럼 날짜·순서·메모만. 내 위치·지도·거리·장소 위치 찾기를 끄고, 메모를 크게 보여 줘요. 누르면 바로 바뀌어요</span></span></label>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
     <div class="muted small">${PROXY_URL
@@ -3653,12 +3729,14 @@ function loadPlan(plan) {
   if (S.home) { S.home.step = 'done'; S.home.fromDone = false; renderHome(); } // 처음 화면에서 엑셀로 넣었으면 D-day 화면으로
 }
 
-// manual: 사용자가 직접 고른 날짜(뒤로 가기 기록에 남김), fromBack: 뒤로 가기로 돌아온 경우
-function selectDay(date, manual, fromBack) {
+// manual: 사용자가 직접 고른 날짜(뒤로 가기 기록에 남김), fromBack: 뒤로 가기로 돌아온 경우, swipe: 좌우로 밀어 넘김
+// 밀어서 넘긴 건 밀기 시작한 날만 기억: 월화월화… 왔다 갔다 해도 뒤로 가기 한 번이면 처음 보던 날로
+function selectDay(date, manual, fromBack, swipe) {
   if (manual && !fromBack && S.selected && date !== S.selected) {
-    S.dayBack.push(S.selected);
-    if (S.dayBack.length > 30) S.dayBack.shift();
+    if (S.dayBack.at(-1) === date) S.dayBack.pop(); // 바로 전에 보던 날로 돌아온 건 뒤로 가기와 같음
+    else if (!(swipe && S.daySwipe)) { S.dayBack.push(S.selected); if (S.dayBack.length > 30) S.dayBack.shift(); }
   }
+  S.daySwipe = !!swipe;
   S.selected = date;
   S.followToday = !manual || date === todayStr();
   S.live = null;
@@ -4055,6 +4133,10 @@ async function act(name, el) {
       break;
     case 'pickCancel': finishPick(); break;
     case 'edStayQuick': syncDraft(); S.sheet.draft.stay = +el.dataset.m; renderSheet(); break;
+    case 'edCat': syncDraft(); S.sheet.draft.cat = el.dataset.cat; renderSheet(); break;
+    case 'help': S.sheet = { type: 'help' }; renderSheet(); break;
+    case 'helpOk': closeSheet(); if (!S.settings.bubTip) tipOk(); break;
+    case 'tipOk': tipOk(); break;
     case 'edMode': syncDraft(); S.sheet.draft.mode = el.dataset.mode; renderSheet(); renderMap(false); break;
     case 'edSave': edSave(); break;
     case 'nav': {
@@ -4292,41 +4374,67 @@ dragTracker($('#listView'), {
   axis: 'x',
   onMove(s) {
     if (S.sheet || topLayer() !== 'list') return;
-    const page = $('#dayPage');
-    page.style.transition = 'none';
+    // 지금 날짜와 옆 날짜가 한 장처럼 붙어서 손가락을 따라감 (옆이 빈 화면으로 보이지 않게)
+    const page = $('#dayPage'), W = $('#listView').clientWidth, dir = s.dx < 0 ? 1 : -1, peek = dayPeek(addDays(S.selected, dir));
+    page.style.transition = peek.style.transition = 'none';
     page.style.transform = `translateX(${s.dx}px)`;
-    page.style.opacity = String(1 - Math.min(Math.abs(s.dx) / 700, 0.4));
+    peek.style.transform = `translateX(${s.dx + dir * W}px)`;
   },
   onEnd(s, ms) {
     if (S.sheet || topLayer() !== 'list') return;
-    const page = $('#dayPage'), w = page.offsetWidth, fast = Math.abs(s.dx) / ms > 0.5;
-    if (Math.abs(s.dx) > w * 0.28 || (fast && Math.abs(s.dx) > 40)) swipeDay(s.dx < 0 ? 1 : -1);
+    const page = $('#dayPage'), W = $('#listView').clientWidth, fast = Math.abs(s.dx) / ms > 0.5;
+    if (Math.abs(s.dx) > W * 0.28 || (fast && Math.abs(s.dx) > 40)) swipeDay(s.dx < 0 ? 1 : -1);
     else {
-      page.style.transition = `transform .4s ${EASE}, opacity .4s ${EASE}`;
-      page.style.transform = '';
-      page.style.opacity = '';
+      // 덜 밀었으면 둘 다 제자리로
+      const peek = $('#dayPeek'), tr = `transform .35s ${EASE}`;
+      page.style.transition = tr; page.style.transform = '';
+      if (peek && !peek.hidden) { peek.style.transition = tr; peek.style.transform = `translateX(${(s.dx < 0 ? 1 : -1) * W}px)`; }
+      setTimeout(() => { if (!page.style.transform) peekHide(); }, 380); // 그 사이 다시 밀기 시작했으면 그대로
     }
   },
 });
 
 function swipeDay(dir) {
-  const page = $('#dayPage'), w = page.offsetWidth || 375;
   swipedAt = Date.now(); // 밀기 직후의 클릭(상세 열림)은 무시
-  // 1) 현재 날짜가 밀려 나감
-  page.style.transition = `transform .26s ${EASE}, opacity .26s ${EASE}`;
-  page.style.transform = `translateX(${-dir * w}px)`;
-  page.style.opacity = '0';
+  const date = addDays(S.selected, dir);
+  slideDays(dir, date, () => selectDay(date, true, false, true));
+}
+
+// 옆 날짜 화면을 미리 그려 둠 (지금 화면 옆에 붙어 있다가 밀면 같이 들어옴)
+function dayPeek(date) {
+  let el = $('#dayPeek');
+  if (!el) { el = document.createElement('div'); el.id = 'dayPeek'; el.className = 'day-peek'; el.setAttribute('aria-hidden', 'true'); $('#listView').after(el); }
+  if (el.dataset.date !== date) {
+    const keep = [S.selected, S.cur], tl = document.createElement('section');
+    tl.className = 'timeline';
+    S.selected = date; recompute();
+    try { renderTimeline(tl, true); } finally { [S.selected, S.cur] = keep; }
+    el.replaceChildren(tl);
+    el.dataset.date = date;
+    el.style.transition = 'none'; el.style.transform = '';
+  }
+  el.hidden = false;
+  return el;
+}
+function peekHide() {
+  const el = $('#dayPeek');
+  if (!el) return;
+  el.hidden = true; el.dataset.date = ''; el.style.transition = 'none'; el.style.transform = ''; el.replaceChildren();
+}
+// 날짜 넘기기 공통: 지금 날은 옆으로 밀려 나가고 옆 날짜가 같이 따라 들어온 뒤, 진짜로 그 날로 바꿈 (done)
+function slideDays(dir, date, done) {
+  const page = $('#dayPage'), lv = $('#listView'), W = lv.clientWidth || 375, peek = dayPeek(date);
+  if (!peek.style.transform) { peek.style.transition = 'none'; peek.style.transform = `translateX(${dir * W}px)`; void peek.offsetWidth; }
+  page.style.transition = peek.style.transition = `transform .3s ${EASE}`;
+  page.style.transform = `translateX(${-dir * W}px)`;
+  peek.style.transform = 'translateX(0px)';
   setTimeout(() => {
-    // 2) 새 날짜를 반대편에 두고 미끄러져 들어옴
-    selectDay(addDays(S.selected, dir), true);
-    $('#listView').scrollTop = 0;
-    page.style.transition = 'none';
-    page.style.transform = `translateX(${dir * w * 0.6}px)`;
-    void page.offsetWidth;
-    page.style.transition = `transform .45s ${EASE}, opacity .3s ${EASE}`;
-    page.style.transform = '';
-    page.style.opacity = '';
-  }, 230);
+    page.style.transition = 'none'; page.style.transform = ''; page.style.opacity = '';
+    lv.scrollTop = 0;
+    done();
+    lv.scrollTop = 0;
+    peekHide();
+  }, 300);
 }
 
 // 아래에서 올라온 창: 맨 위에서 아래로 쓸어내리면 닫힘 (손가락을 따라 내려감)
