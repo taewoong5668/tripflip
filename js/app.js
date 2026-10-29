@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291700';
-import { arrivalGuide } from './guides.js?v=202610291700';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291704';
+import { arrivalGuide } from './guides.js?v=202610291704';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291700';
-import { createMap } from './map.js?v=202610291700';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291700';
-import { PROXY_URL } from './config.js?v=202610291700';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291700';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291700';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291700';
-import { tzOf } from './tz.js?v=202610291700';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291700';
-import { findCodes, codeName } from './codes.js?v=202610291700';
+} from './schedule.js?v=202610291704';
+import { createMap } from './map.js?v=202610291704';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291704';
+import { PROXY_URL } from './config.js?v=202610291704';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291704';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291704';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291704';
+import { tzOf } from './tz.js?v=202610291704';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291704';
+import { findCodes, codeName } from './codes.js?v=202610291704';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1657,9 +1657,9 @@ function peekHtml(d, i) {
   const lines = [];
   if (done) lines.push(line('✓', state === 'skip' ? '건너뜀' : '다녀왔어요'));
   if (s.proc) lines.push(line('✈️', `${fmtClock(s.arrive)} 착륙 · 입국 절차 약 ${fmtDur(s.proc)}`));
-  else if (first) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`));
+  else if (first) { if (!boardMode()) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`)); } // 버블 보드에선 출발·머무는 시간 없이 예약 시각만
   else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>`));
-  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
+  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 && !boardMode() ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
   if (s.late > 0 && !done && !boardMode()) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
   if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
   lines.push(line('📍', it.address ? esc(it.address) : hasPos(it) ? '<span class="muted">지도 위치 있음</span>' : '<span class="late-tag">위치 없음</span>'));
@@ -1771,7 +1771,7 @@ function renderDetail() {
   const state = itemState(d, i, ph), color = placeColor(i, state), p = (S.progress[d.date] || {})[it.id] || {};
   const free = i < n - 1 && s.stayEff > 0 ? s.stayEff : 0;
   const stateTag = { done: '완료한 일정', skip: '건너뛴 일정', here: '지금 여기', next: '다음 목적지' }[state] || '';
-  const prev = d.items[i - 1], l = legs[i], m = MODES[it.mode];
+  const prev = d.items[i - 1], l = legs[i], m = MODES[it.mode], bm = boardMode();
   const warns = [];
   if (s.late) warns.push(`예약 시각보다 ${s.late}분 늦어요`);
   el.innerHTML = `<div class="dt-scroll">
@@ -1782,10 +1782,11 @@ function renderDetail() {
       ${it.address ? `<div class="dt-addr">${esc(it.address)}</div>` : ''}
     </div>
     ${i === 0 && n > 1 && !s.proc
-      ? `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}쯤 출발</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)} 출발</em>` : ''}</div></div>`
+      ? bm ? '' : `<div class="dt-times one"><div><span>출발지</span><b>${fmtClock(s.depart)}쯤 출발</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)} 출발</em>` : ''}</div></div>`
       : !isFixedItem(d, i) && !s.proc
       ? (() => { const jf = nextFixedIdx(d, i + 1);
-          return `<div class="dt-times one"><div><span>자유 일정 · 순서대로</span><b>${jf >= 0 ? `${esc(d.items[jf].place)} ${fmtClock(d.items[jf].time)} 예약 전까지` : '시간 제한 없이'}</b>${jf >= 0 ? `<em>늦어도 ${clockAt(latestDepMs(d, jf), d.date)} 출발</em>` : ''}${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)} 도착</em>` : ''}</div></div>`; })()
+          return `<div class="dt-times one"><div><span>자유 일정 · 순서대로</span><b>${jf >= 0 ? `${esc(d.items[jf].place)} ${fmtClock(d.items[jf].time)} 예약 전까지` : '시간 제한 없이'}</b>${jf >= 0 && !bm ? `<em>늦어도 ${clockAt(latestDepMs(d, jf), d.date)} 출발</em>` : ''}${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)} 도착</em>` : ''}</div></div>`; })()
+      : bm ? `<div class="dt-times one"><div><span>${s.proc ? '착륙' : '예약'}</span><b>${fmtClock(s.proc ? s.arrive : it.time)}</b>${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)} 도착</em>` : ''}</div></div>`
       : `<div class="dt-times">
       <div><span>도착</span><b>${s.arrive != null ? fmtClock(s.arrive) : '—'}</b>${p.arr ? `<em>실제 ${clockAt(p.arr, d.date)}</em>` : ''}</div>
       <div><span>여유</span><b>${free ? fmtDur(free) : '—'}</b></div>
@@ -3010,9 +3011,10 @@ function editHtml(sh) {
         `<button class="chip-btn ${x.date === target ? 'on' : ''}" data-act="edDate" data-date="${x.date}">${dayLabel(x.date)}</button>`).join('')}</div>
         ${target !== sh.date ? `<div class="muted small">저장하면 <b>${dayLabel(target)}</b>${sh.id ? '로 옮겨져요' : '에 넣어요 (시간 순서에 맞는 자리로)'}</div>` : ''}</div>`;
     }
-    html += legInfo + `<div class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}
-      ${timeField('edTime', dr.time, { placeholder: isStart ? '출발 시간 고르기' : '정해진 시간 없음 (자동)', clearable: !isStart })}</div>
-    ${sh.id ? `<div class="field">${isStart ? '출발 전 머무는 시간' : '머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>` : ''}
+    const bm = boardMode(); // 버블 보드: 출발 시간·머무는 시간은 묻지 않고 예약 시각만
+    html += legInfo + `${isStart && bm ? '' : `<div class="field">${isStart ? '출발 시간' : '도착 시간 <span class="muted small">(예약처럼 정해진 경우만. 비우면 자동 계산)</span>'}
+      ${timeField('edTime', dr.time, { placeholder: isStart ? '출발 시간 고르기' : '정해진 시간 없음 (자동)', clearable: !isStart })}</div>`}
+    ${sh.id && !bm ? `<div class="field">${isStart ? '출발 전 머무는 시간' : '머무는 시간'}<div class="chips">${stayChips}<span class="stay-input"><input id="edStay" type="number" min="0" step="5" value="${dr.stay || 0}">분</span></div></div>` : ''}
     ${isStart ? '' : `<div class="field">이동 방법<div class="chips">${modes}</div></div>`}`;
   }
 
