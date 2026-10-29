@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291927';
-import { arrivalGuide } from './guides.js?v=202610291927';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292013';
+import { arrivalGuide } from './guides.js?v=202610292013';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291927';
-import { createMap } from './map.js?v=202610291927';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291927';
-import { PROXY_URL } from './config.js?v=202610291927';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291927';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291927';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291927';
-import { tzOf } from './tz.js?v=202610291927';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291927';
-import { findCodes, codeName } from './codes.js?v=202610291927';
+} from './schedule.js?v=202610292013';
+import { createMap } from './map.js?v=202610292013';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292013';
+import { PROXY_URL } from './config.js?v=202610292013';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292013';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292013';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292013';
+import { tzOf } from './tz.js?v=202610292013';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292013';
+import { findCodes, codeName } from './codes.js?v=202610292013';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1234,7 +1234,6 @@ function notesHtml(it, i) {
   const parts = (it.notes || []).map(n => n.label === '주변 추천'
     ? `<div class="note"><div class="note-label">주변 추천 <span class="muted small">· 누르면 위치와 정보</span></div><div class="chips">${splitChips(n.text).map(c => `<button class="chip poi" data-act="poi" data-i="${i}" data-name="${esc(c)}">📍 ${esc(c)}</button>`).join('')}</div></div>`
     : `<div class="note"><div class="note-label">${esc(n.label)}</div><div>${esc(n.text)}</div></div>`);
-  if (it.memo) parts.push(`<div class="note"><div class="note-label">메모</div><div class="pre">${esc(it.memo)}</div></div>`);
   return parts.join('');
 }
 
@@ -1836,7 +1835,12 @@ function renderDetail() {
       ${it.mode === 'TRANSIT' ? rideOptionsHtml(l, d.date) : ''}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button></div>
     </div>` : ''}
-    ${(it.notes || []).length || it.memo ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
+    ${(it.notes || []).length ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
+    <div class="dt-card dt-memo">
+      <div class="note-label">📝 메모</div>
+      ${it.memo ? `<div class="pre selectable">${esc(it.memo)}</div>` : ''}
+      <button class="chip-btn" data-act="memoEdit" data-i="${i}">${it.memo ? '✏️ 메모 고치기' : '＋ 메모 추가'}</button>
+    </div>
     <div class="dt-card">
       <div class="note-label">📎 첨부 파일 <span class="muted small">· 바우처, 예약 티켓 사진이나 PDF</span></div>
       <div class="att-grid" data-att="${i}"></div>
@@ -1845,14 +1849,6 @@ function renderDetail() {
     <div class="dt-card dt-acts">
       <button data-act="editPlace" data-i="${i}">✏️ 수정</button>
       ${hasPos(it) ? `<button data-act="favToggle" data-i="${i}">${isFav(it) ? '🫧 버블 있음' : '🫧 버블 만들기'}</button>` : ''}
-      <button data-act="addPlace" data-i="${i + 1}">＋ 이 장소 뒤에 일정 넣기</button>
-      ${i > 0 ? `<button data-act="moveUp" data-i="${i}">↑ 순서 앞으로</button>` : ''}
-      ${i < n - 1 ? `<button data-act="moveDown" data-i="${i}">↓ 순서 뒤로</button>` : ''}
-      ${isLive() && i > 0 ? `<button data-act="arrive" data-i="${i}">도착 처리</button>` : ''}
-      ${isLive() && i < n - 1 ? `<button data-act="depart" data-i="${i}">출발 처리</button>` : ''}
-      ${isLive() ? `<button data-act="doneUpTo" data-i="${i}">✅ 여기까지 끝났어요</button>` : ''}
-      ${p.arr || p.dep || p.skip || p.pass ? `<button data-act="clear" data-i="${i}">기록 지우기</button>` : ''}
-      ${hasPos(it) ? `<button data-act="gmap" data-i="${i}">지도 앱에서 보기</button>` : ''}
       <button data-act="delPlace" data-i="${i}" class="danger">삭제</button>
     </div>
     <div class="dt-nav">
@@ -2479,7 +2475,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml, tripName: tripNameHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml, tripName: tripNameHtml, memo: memoHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -3232,13 +3228,6 @@ function trashItem(d, idx) {
   } });
 }
 
-function movePlace(d, idx, dir) {
-  const j = idx + dir;
-  if (j < 0 || j >= d.items.length) return;
-  [d.items[idx], d.items[j]] = [d.items[j], d.items[idx]];
-  savePlan(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
-}
-
 // ---------- 초대 코드 (지인 전용 구글 검색) ----------
 function openInvite() {
   S.sheet = { type: 'invite', err: '', busy: false };
@@ -3433,6 +3422,29 @@ function tripNameOk() {
   if (sh.from === 'home' && S.home) { S.home.title = v; closeSheet(); renderHome(); paintRange(); } // 날짜를 고르면 이 이름으로 여행이 만들어짐
   else { S.plan.title = v; S.plan.named = true; savePlan(); closeSheet(); renderAll(false); }
   toast(`✏️ 여행 이름: ${v}`);
+}
+
+// 📝 메모: 자세히 화면에서 바로 적기 (수정 창을 열지 않고)
+function openMemo(i) {
+  const it = curDay()?.items[i];
+  if (!it) return;
+  S.sheet = { type: 'memo', date: S.selected, id: it.id, value: it.memo || '' };
+  renderSheet();
+  setTimeout(() => { const t = $('#memoIn'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 300);
+}
+const memoItem = sh => S.plan.days.find(x => x.date === sh.date)?.items.find(x => x.id === sh.id);
+function memoHtml(sh) {
+  return `<div class="sheet-head"><div><div class="st-label">${esc(memoItem(sh)?.place || '')}</div><b>📝 메모</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <label class="field">메모<textarea id="memoIn" rows="5" placeholder="예: 예약 번호, 입장권은 2층 매표소, 꼭 먹어 볼 것">${esc(sh.value)}</textarea></label>
+    <div class="st-actions"><button class="primary" data-act="memoOk">저장</button><button data-act="closeSheet">취소</button></div>`;
+}
+function memoOk() {
+  const it = memoItem(S.sheet), v = ($('#memoIn')?.value || '').trim();
+  closeSheet();
+  if (!it || v === (it.memo || '')) return;
+  it.memo = v;
+  savePlan(); renderAll(false);
+  toast(v ? '📝 메모를 저장했어요' : '📝 메모를 지웠어요');
 }
 
 // 2/3 날짜: 위에 [출발] → [도착] 칸, 아래로 여러 달이 이어진 달력. 출발일 → 도착일 차례로 누르면 기간 (다음 달로 넘어가도 그대로)
@@ -3975,8 +3987,6 @@ async function act(name, el) {
     case 'wishAdd': wishAdd(); break;
     case 'editPlace': openEditor(i, d.items[i].id); break;
     case 'delPlace': deletePlace(d, el.dataset.id ? d.items.findIndex(x => x.id === el.dataset.id) : i); break;
-    case 'moveUp': movePlace(d, i, -1); break;
-    case 'moveDown': movePlace(d, i, 1); break;
     case 'edSearch': edSearch('dest'); break;
     case 'edChoose': edChoose(+el.dataset.k); break;
     case 'orSearch': edSearch('origin'); break;
@@ -4033,7 +4043,6 @@ async function act(name, el) {
         scheduleAlarms(true); toast('10분 뒤에 다시 알려 드릴게요'); } break; }
     case 'depart': markDepart(d, i); break;
     case 'clear': delete progOf(d.date)[d.items[i].id]; changed(); if (S.sheet?.type === 'prog') renderSheet(); break;
-    case 'gmap': openExternal(placeUrl(d.items[i])); break;
     case 'closeSheet': closeSheet(); break;
     case 'saveSettings': saveSettings(); break;
     case 'invite': openInvite(); break;
@@ -4086,6 +4095,8 @@ async function act(name, el) {
     case 'hmKind': S.home.kind = el.dataset.kind; S.home.step = 'dates'; renderHome(); paintRange(); openTripName('home'); break;
     case 'hmName': openTripName('home'); break;
     case 'tripNameOk': tripNameOk(); break;
+    case 'memoEdit': openMemo(i); break;
+    case 'memoOk': memoOk(); break;
     case 'hmDay': hmPickDay(el.dataset.date); break;
     case 'hmSE': if (el.dataset.w === 'e') S.home.pickEnd = !!S.home.start; else { S.home.pickEnd = false; S.home.keepEnd = true; } paintRange(); break;
     case 'hmDates': {

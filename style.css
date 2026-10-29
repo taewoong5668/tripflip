@@ -162,7 +162,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dt-dist { font-weight: 600; }
 .dt-warn { background: var(--danger-soft); color: var(--danger); border-radius: 14px; padding: 9px 12px; font-size: 13px; font-weight: 700; margin-bottom: 10px; }
 .dt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
-.dt-acts button { border: 1px solid var(--line); background: var(--card-2); border-radius: 12px; padding: 9px 12px; font-size: 13px; font-weight: 700; }
+.dt-acts button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: var(--card-2); border-radius: 12px; padding: 9px 12px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.dt-memo .pre { margin: 2px 0 10px; line-height: 1.55; }
 .dt-nav { display: flex; justify-content: space-between; gap: 10px; margin: 4px 0 8px; }
 .dt-nav button { border: 0; background: transparent; color: var(--accent); font-weight: 700; font-size: 13px; padding: 8px 4px; max-width: 48%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dt-pull { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 18px 0 10px; }
