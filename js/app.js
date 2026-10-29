@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291831';
-import { arrivalGuide } from './guides.js?v=202610291831';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291839';
+import { arrivalGuide } from './guides.js?v=202610291839';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291831';
-import { createMap } from './map.js?v=202610291831';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291831';
-import { PROXY_URL } from './config.js?v=202610291831';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291831';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291831';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291831';
-import { tzOf } from './tz.js?v=202610291831';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291831';
-import { findCodes, codeName } from './codes.js?v=202610291831';
+} from './schedule.js?v=202610291839';
+import { createMap } from './map.js?v=202610291839';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291839';
+import { PROXY_URL } from './config.js?v=202610291839';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291839';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291839';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291839';
+import { tzOf } from './tz.js?v=202610291839';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291839';
+import { findCodes, codeName } from './codes.js?v=202610291839';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -3375,7 +3375,7 @@ const HOME_STEPS = ['kind', 'dates', 'plan'];
 function openHome(step) {
   const stage = tripStage(tripRange(S.plan), todayStr());
   const t = S.plan.trip || {};
-  S.home = { step: step || (stage === 'none' ? 'kind' : 'done'), kind: t.kind || null, start: null, end: null, month: null, fromDone: false };
+  S.home = { step: step || (stage === 'none' ? 'kind' : 'done'), kind: t.kind || null, start: null, end: null, fromDone: false };
   renderHome();
 }
 function closeHome() { S.home = null; renderHome(); }
@@ -3386,6 +3386,7 @@ function renderHome() {
   el.hidden = false;
   el.innerHTML = { kind: homeKind, dates: homeDates, plan: homePlan, done: homeDone }[h.step](h);
   el.scrollTop = 0;
+  if (h.step === 'dates' && h.start) document.querySelector(`.hm-mon[data-ym="${h.start.slice(0, 7)}"]`)?.scrollIntoView({ block: 'start' });
 }
 
 // 위쪽: 뒤로 가기 + 1·2·3 단계 점
@@ -3426,31 +3427,42 @@ function tripNameOk() {
   toast(`✏️ 여행 이름: ${v}`);
 }
 
+// 2/3 날짜: 위에 [출발] → [도착] 칸, 아래로 여러 달이 이어진 달력. 출발일 → 도착일 차례로 누르면 기간 (다음 달로 넘어가도 그대로)
 function homeDates(h) {
-  const t = todayStr();
-  h.month ||= { y: +(h.start || t).slice(0, 4), m: +(h.start || t).slice(5, 7) };
-  const { y, m } = h.month;
-  const cells = monthCells(y, m).map(date => date
-    ? `<div class="hm-day ${date < t ? 'past' : ''} ${date === t ? 'today' : ''} ${new Date(dayStart(date)).getDay() === 0 ? 'sun' : ''}" data-date="${date}">${+date.slice(8)}</div>`
-    : '<div></div>').join('');
-  return `${homeTop(h)}<div class="hm-tname-row"><button class="hm-tname" data-act="hmName">${h.title ? `✏️ ${esc(h.title)}` : '✏️ 여행 이름 정하기'}</button></div><h1>언제 떠나세요?</h1><p class="hm-sub">출발일을 누른 채 마지막 날까지 끌어 주세요<br><span class="muted small">(차례로 눌러도 돼요 · 다음 달로 이어지면 끄는 채로 › 에 잠깐 대거나, › 로 넘겨서 마지막 날 누르기)</span></p>
-    <div class="hm-cal">
-      <div class="hm-month"><button class="icon-btn" data-act="hmMonth" data-d="-1" aria-label="이전 달"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <b>${y}년 ${m}월</b>
-        <button class="icon-btn" data-act="hmMonth" data-d="1" aria-label="다음 달"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button></div>
-      <div class="hm-week">${[...'일월화수목금토'].map(w => `<span>${w}</span>`).join('')}</div>
-      <div class="hm-grid" id="hmGrid">${cells}</div>
+  const t = todayStr(), from = h.start && h.start < t ? h.start : t;
+  let y = +from.slice(0, 4), m = +from.slice(5, 7);
+  const months = [];
+  for (let k = 0; k < 13; k++) { // 이번 달부터 1년치
+    const cells = monthCells(y, m).map(date => date
+      ? `<div class="hm-day ${date < t ? 'past' : ''} ${date === t ? 'today' : ''} ${new Date(dayStart(date)).getDay() === 0 ? 'sun' : ''}" data-act="hmDay" data-date="${date}">${+date.slice(8)}</div>`
+      : '<div></div>').join('');
+    months.push(`<div class="hm-mon" data-ym="${y}-${String(m).padStart(2, '0')}"><b>${y}년 ${m}월</b><div class="hm-grid">${cells}</div></div>`);
+    if (++m > 12) { m = 1; y++; }
+  }
+  return `${homeTop(h)}<div class="hm-tname-row"><button class="hm-tname" data-act="hmName">${h.title ? `✏️ ${esc(h.title)}` : '✏️ 여행 이름 정하기'}</button></div><h1>언제 떠나세요?</h1><p class="hm-sub">출발일과 도착일을 차례로 눌러 주세요</p>
+    <div class="hm-se">
+      <button class="hm-se-box" id="hmS" data-act="hmSE" data-w="s"><span>🛫 출발</span><b></b></button>
+      <span class="hm-se-arrow">→</span>
+      <button class="hm-se-box" id="hmE" data-act="hmSE" data-w="e"><span>🛬 도착</span><b></b></button>
     </div>
-    <div class="hm-pick" id="hmPick"></div>
-    <button class="hm-next primary" id="hmNext" data-act="hmDates">다음</button>`;
+    <div class="hm-week">${[...'일월화수목금토'].map(w => `<span>${w}</span>`).join('')}</div>
+    <div class="hm-months" id="hmMonths">${months.join('')}</div>
+    <div class="hm-bottom"><div class="hm-pick" id="hmPick"></div><button class="hm-next primary" id="hmNext" data-act="hmDates">다음</button></div>`;
 }
-
-function flipMonth(d) {
-  const h = S.home, mm = h.month.y * 12 + h.month.m - 1 + d;
-  h.month = { y: Math.floor(mm / 12), m: mm % 12 + 1 };
-  renderHome(); paintRange();
+// 날짜를 누를 때: 도착일을 고르는 중이면 도착, 아니면 출발 (출발을 고르면 다음은 도착)
+function hmPickDay(d) {
+  const h = S.home;
+  if (h.pickEnd && h.start && d >= h.start) { h.end = d; h.pickEnd = false; }
+  else {
+    const keep = (h.keepEnd || h.pickEnd) && h.end && h.end >= d; // 출발 칸을 눌러 출발만 고칠 때는 도착일 그대로
+    h.start = d;
+    if (!keep) h.end = null;
+    h.pickEnd = !h.end;
+  }
+  h.keepEnd = false;
+  paintRange();
 }
-// 끄는 동안에는 화면을 다시 그리지 않고 칸 색만 바꿈 (손가락을 놓치지 않게)
+// 칸 색과 위의 출발·도착 칸만 바꿈 (달력은 다시 그리지 않아서 보던 자리 그대로)
 function paintRange() {
   const h = S.home;
   if (!h || h.step !== 'dates') return;
@@ -3461,46 +3473,13 @@ function paintRange() {
     c.classList.toggle('edge-s', d === a);
     c.classList.toggle('edge-e', !!a && d === b);
   });
+  const box = (id, date, on) => { const el = $(id); el.classList.toggle('on', on); el.classList.toggle('none', !date); el.querySelector('b').textContent = date ? dayLabel(date) : '날짜 선택'; };
+  box('#hmS', h.start, !h.pickEnd);
+  box('#hmE', h.end, !!h.pickEnd);
   const r = a && { start: a, end: b };
-  $('#hmPick').innerHTML = r ? `<b>${fmtRange(r)}</b> · ${fmtNights(r)}` : '<span class="muted">날짜를 골라 주세요</span>';
+  $('#hmPick').innerHTML = !r ? '<span class="muted">출발일을 눌러 주세요</span>'
+    : `<b>${fmtRange(r)}</b> · ${fmtNights(r)}${h.end ? '' : ' <span class="muted">· 도착일을 눌러 주세요</span>'}`;
   $('#hmNext').disabled = !r;
-}
-
-function setupHome() {
-  const el = $('#home');
-  let drag = null;
-  const dayAt = (x, y) => document.elementFromPoint(x, y)?.closest('.hm-day[data-date]')?.dataset.date;
-  const setRange = (a, b) => { const [s, e] = a <= b ? [a, b] : [b, a]; S.home.start = s; S.home.end = e; paintRange(); };
-  el.addEventListener('pointerdown', e => {
-    const date = e.target.closest('.hm-day[data-date]')?.dataset.date;
-    if (!date || S.home?.step !== 'dates') return;
-    e.preventDefault();
-    const h = S.home, single = h.start && h.start === h.end;
-    // › 로 다음 달로 넘긴 뒤 골라 둔 기간보다 뒤 날을 누르면 이어 붙임 (10/30~10/31 → 다음 달 11/3까지). 그 밖이거나 너무 먼 날이면 새로 고르기
-    const keep = h.cont > 0 && h.start && date > h.end && daysBetween(h.start, date) <= 60 ? h.start : null;
-    h.cont = 0;
-    drag = { anchor: keep || date, moved: !!keep, prev: !keep && single ? h.start : null };
-    try { el.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ } // 달이 바뀌어 칸이 다시 그려져도 손가락을 놓치지 않게
-    setRange(drag.anchor, date);
-  });
-  el.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const date = dayAt(e.clientX, e.clientY);
-    if (date && (date !== drag.anchor || drag.moved)) { drag.moved = true; setRange(drag.anchor, date); }
-    // 끄는 채로 ‹ › 에 잠깐 대고 있으면 그 달로 넘어감 (계속 대고 있으면 한 달씩 더)
-    const arrow = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-act="hmMonth"]');
-    if (arrow && !drag.flip) drag.flip = setTimeout(() => { if (drag) { drag.flip = null; drag.moved = true; flipMonth(+arrow.dataset.d); } }, 550);
-    else if (!arrow && drag.flip) { clearTimeout(drag.flip); drag.flip = null; }
-  });
-  const end = () => {
-    // 끌지 않고 톡 눌렀으면: 먼저 하루만 골라 둔 상태에서 다른 날을 누르면 그 사이 전체
-    if (drag && !drag.moved && drag.prev && drag.prev !== drag.anchor) setRange(drag.prev, drag.anchor);
-    clearTimeout(drag?.flip);
-    drag = null;
-  };
-  el.addEventListener('pointerup', end);
-  el.addEventListener('pointercancel', end);
-  el.addEventListener('touchmove', e => { if (drag && e.cancelable) e.preventDefault(); }, { passive: false });
 }
 
 function homePlan(h) {
@@ -4099,7 +4078,8 @@ async function act(name, el) {
     case 'hmKind': S.home.kind = el.dataset.kind; S.home.step = 'dates'; renderHome(); paintRange(); openTripName('home'); break;
     case 'hmName': openTripName('home'); break;
     case 'tripNameOk': tripNameOk(); break;
-    case 'hmMonth': flipMonth(+el.dataset.d); S.home.cont = S.home.start ? +el.dataset.d : 0; break; // 넘긴 쪽으로 누르면 기간을 이어 붙임
+    case 'hmDay': hmPickDay(el.dataset.date); break;
+    case 'hmSE': if (el.dataset.w === 'e') S.home.pickEnd = !!S.home.start; else { S.home.pickEnd = false; S.home.keepEnd = true; } paintRange(); break;
     case 'hmDates': {
       const h = S.home;
       if (!h.start) break;
@@ -4114,7 +4094,7 @@ async function act(name, el) {
     case 'hmNew': {
       const live = S.plan.days.some(d => d.items.length) && tripStage(tripRange(S.plan), todayStr()) !== 'none';
       if (live && !confirm('지금 여행 일정을 지우고 새 여행을 만들까요? (다녀온 곳은 추억에 남아요)')) break;
-      Object.assign(S.home, { step: 'kind', fromDone: true, start: null, end: null, month: null });
+      Object.assign(S.home, { step: 'kind', fromDone: true, start: null, end: null });
       renderHome();
       break;
     }
@@ -4454,7 +4434,6 @@ async function init() {
   recompute();
   renderAll(false);
   scrollToNow();
-  setupHome();
   openHome(); // 켤 때마다 처음 화면: 새 여행 만들기 / D-day / 여행 펼쳐보기
 
   S.map = await createMap($('#map'), S.settings.apiKey, msg => toast(msg || '구글맵 API 키를 확인해 주세요', 6000));
