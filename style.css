@@ -43,7 +43,10 @@ body {
   font: 15px/1.5 "Arimo", Arial, "Helvetica Neue", Helvetica, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
   letter-spacing: 0;
   padding-top: env(safe-area-inset-top);
+  /* 길게 누르면 폰이 글자를 잡아(복사·공유 메뉴) 버블 끌기를 가로채서, 글 쓰는 칸 말고는 글자 선택 끔 */
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
+input, textarea, select, [contenteditable], .prompt, .vwc figcaption, .dt-addr, .selectable { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 button { font: inherit; color: inherit; cursor: pointer; }
 .icon-btn svg, .fab svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 

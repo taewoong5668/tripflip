@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291515';
-import { arrivalGuide } from './guides.js?v=202610291515';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291529';
+import { arrivalGuide } from './guides.js?v=202610291529';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291515';
-import { createMap } from './map.js?v=202610291515';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291515';
-import { PROXY_URL } from './config.js?v=202610291515';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291515';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291515';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291515';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291515';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291515';
-import { findCodes, codeName } from './codes.js?v=202610291515';
+} from './schedule.js?v=202610291529';
+import { createMap } from './map.js?v=202610291529';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291529';
+import { PROXY_URL } from './config.js?v=202610291529';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291529';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291529';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291529';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291529';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291529';
+import { findCodes, codeName } from './codes.js?v=202610291529';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1391,10 +1391,12 @@ function boardHtml(d, date) {
 // 날짜 탭에 잠깐 대면 그 날로 넘어가고, 🗑에 놓으면 지우기
 S.bd = null;
 const BD_GAP = 10;
+const TEXT_OK = 'input, textarea, select, [contenteditable], .prompt, .vwc figcaption, .dt-addr, .selectable'; // 글자 선택·길게 누르기 메뉴를 허용하는 곳
 function bdCollect() {
   return { slots: [...document.querySelectorAll('#timeline .bslot')].map(el => ({ el, i: +el.dataset.i, r: el.getBoundingClientRect() })), scroll0: $('#listView').scrollTop };
 }
 function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블), card(가볼 곳 버블), x, y }
+  getSelection()?.removeAllRanges(); // 혹시 잡힌 글자 선택은 풀고 시작
   const c = bdCollect();
   const me = o.kind === 'item' ? c.slots.find(x => x.i === o.i) : null;
   const H = (me ? me.el.querySelector('.bubble').offsetHeight : (c.slots[0]?.el.querySelector('.bubble').offsetHeight || 52)) + BD_GAP;
@@ -4285,6 +4287,8 @@ async function init() {
   setupStatusFold();
   setupRowDrag();
   setupBoardDrag();
+  // 폰의 길게 누르기 메뉴(번역·복사·공유)도 글 쓰는 칸·주소 말고는 안 뜨게
+  document.addEventListener('contextmenu', e => { if (!e.target.closest?.(TEXT_OK)) e.preventDefault(); });
   // 웹앱: 인터넷 없이도 열리게 화면 파일 저장 (안드로이드 앱은 파일이 이미 들어 있음)
   if (!isNative && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   // 인터넷이 다시 되면 못 받은 경로를 이어서 받음
