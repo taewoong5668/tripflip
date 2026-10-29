@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291807';
-import { arrivalGuide } from './guides.js?v=202610291807';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291823';
+import { arrivalGuide } from './guides.js?v=202610291823';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291807';
-import { createMap } from './map.js?v=202610291807';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291807';
-import { PROXY_URL } from './config.js?v=202610291807';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291807';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291807';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291807';
-import { tzOf } from './tz.js?v=202610291807';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291807';
-import { findCodes, codeName } from './codes.js?v=202610291807';
+} from './schedule.js?v=202610291823';
+import { createMap } from './map.js?v=202610291823';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291823';
+import { PROXY_URL } from './config.js?v=202610291823';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291823';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291823';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291823';
+import { tzOf } from './tz.js?v=202610291823';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291823';
+import { findCodes, codeName } from './codes.js?v=202610291823';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1472,6 +1472,25 @@ function bdMove(x, y) {
   } else g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 30}px)`;
   g.ghost.classList.toggle('on-tab', !!t?.date);
   g.ghost.classList.toggle('nodrop', !t);
+  bdLoupe(g, t);
+}
+// 날짜 탭 위에선 그 날짜를 손가락 위로 크게 띄워 보여 줌 (키보드 글자 미리보기처럼): 손가락에 탭이 가려도 어느 날인지 바로 확인
+function bdLoupe(g, t) {
+  let el = $('#tabLoupe');
+  if (!t?.date) { if (el) el.hidden = true; g.loupe = null; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'tabLoupe'; document.body.append(el); }
+  if (g.loupe !== t.date) {
+    g.loupe = t.date;
+    el.textContent = `${dayLabel(t.date)}${t.date === todayStr() ? ' · 오늘' : ''}`;
+    el.hidden = false;
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    navigator.vibrate?.(8); // 날짜가 바뀔 때마다 톡
+  }
+  const r = t.tab.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, cx = r.left + r.width / 2;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, cx - w / 2));
+  el.style.left = `${left}px`;
+  el.style.top = `${Math.max(4, r.top - h - 10)}px`;
+  el.style.setProperty('--ax', `${cx - left}px`); // 꼬리는 탭 가운데를 가리킴
 }
 function bdSwitchDay(date) {
   const g = S.bd;
@@ -1518,6 +1537,7 @@ function bdEnd(cancel) {
   document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
   $('#dragTrash')?.classList.remove('show', 'hot');
   $('#favTray')?.classList.remove('folded');
+  if ($('#tabLoupe')) $('#tabLoupe').hidden = true;
   S.dragJustEnded = Date.now();
   const t = cancel ? null : g.target;
   const reset = () => { bdShift(g, null); g.me?.el.classList.remove('lifted'); };

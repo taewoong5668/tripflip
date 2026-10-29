@@ -753,6 +753,12 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .bubble.bub-ghost { max-width: calc(100vw - 32px); width: max-content; transition: opacity .15s; }
 .bubble.bub-ghost.on-tab { transition: transform .16s cubic-bezier(.32,.72,0,1), opacity .15s; opacity: .92; }
 .bubble.bub-ghost.nodrop { opacity: .45; }
+/* 끄는 버블이 날짜 탭 위에 있을 때: 그 날짜를 손가락 위에 크게 (꼬리는 탭을 가리킴) */
+#tabLoupe { position: fixed; z-index: 3600; pointer-events: none; padding: 11px 24px; border-radius: 18px; background: var(--accent); color: var(--on-accent);
+  font-size: 24px; font-weight: 900; letter-spacing: -.01em; white-space: nowrap; box-shadow: 0 12px 30px rgba(17,34,51,.35), 0 0 0 3px var(--bg); }
+#tabLoupe::after { content: ""; position: absolute; left: var(--ax, 50%); bottom: -6px; width: 14px; height: 14px; margin-left: -7px; background: var(--accent); border-radius: 3px; transform: rotate(45deg); }
+#tabLoupe.pop { animation: loupepop .2s cubic-bezier(.34,1.5,.64,1); }
+@keyframes loupepop { from { opacity: 0; transform: translateY(14px) scale(.5); } }
 #dayTabs .tab.got { animation: tabgot .6s cubic-bezier(.32,.72,0,1); }
 @keyframes tabgot { 0% { transform: scale(1.2); background: var(--accent); color: var(--on-accent); } 100% { transform: none; } }
 .row.peeked, .bubble.peeked { transform: scale(.97); opacity: .55; }
