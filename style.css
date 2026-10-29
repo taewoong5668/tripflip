@@ -604,6 +604,7 @@ button.progress { font: inherit; font-size: 12px; font-weight: 700; cursor: poin
 /* 즐겨찾기 서랍 (시간표 아래) */
 #favTray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -10px 30px rgba(17,34,51,.16); border-radius: 20px 20px 0 0; }
 body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
+.list-view.bd-room { padding-bottom: 220px; }
 #favTray { transition: transform .25s cubic-bezier(.32,.72,0,1); }
 #favTray.folded { transform: translateY(calc(100% - 46px - env(safe-area-inset-bottom))); }
 .ft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 8px 16px; font-size: 15px; }

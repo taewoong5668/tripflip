@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291839';
-import { arrivalGuide } from './guides.js?v=202610291839';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291922';
+import { arrivalGuide } from './guides.js?v=202610291922';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291839';
-import { createMap } from './map.js?v=202610291839';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291839';
-import { PROXY_URL } from './config.js?v=202610291839';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291839';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291839';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291839';
-import { tzOf } from './tz.js?v=202610291839';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291839';
-import { findCodes, codeName } from './codes.js?v=202610291839';
+} from './schedule.js?v=202610291922';
+import { createMap } from './map.js?v=202610291922';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291922';
+import { PROXY_URL } from './config.js?v=202610291922';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291922';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291922';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291922';
+import { tzOf } from './tz.js?v=202610291922';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291922';
+import { findCodes, codeName } from './codes.js?v=202610291922';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1395,9 +1395,10 @@ function boardHtml(d, date) {
 // 날짜 탭에 잠깐 대면 그 날로 넘어가고, 🗑에 놓으면 지우기
 S.bd = null;
 const BD_GAP = 10;
+const BD_LIFT = 30; // 든 버블은 손가락에 가리지 않게 손가락보다 이만큼 위에 떠 있음
 const TEXT_OK = 'input, textarea, select, [contenteditable], .prompt, .vwc figcaption, .dt-addr, .selectable'; // 글자 선택·길게 누르기 메뉴를 허용하는 곳
 function bdCollect() {
-  return { slots: [...document.querySelectorAll('#timeline .bslot')].map(el => ({ el, i: +el.dataset.i, r: el.getBoundingClientRect() })), scroll0: $('#listView').scrollTop };
+  return { slots: [...document.querySelectorAll('#timeline .bslot')].map(el => ({ el, i: +el.dataset.i, r: el.getBoundingClientRect(), b: el.querySelector('.bubble').getBoundingClientRect() })), scroll0: $('#listView').scrollTop, k: null };
 }
 function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블), card(가볼 곳 버블), x, y }
   getSelection()?.removeAllRanges(); // 혹시 잡힌 글자 선택은 풀고 시작
@@ -1414,22 +1415,25 @@ function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블)
   o.card?.classList.add('lifted');
   $('#dragTrash')?.classList.add('show');
   $('#favTray')?.classList.add('folded'); // 서랍은 접어서 보드 전체를 놓을 자리로
+  $('#listView').classList.add('bd-room'); // 맨 끝 자리가 🗑 위로 올라올 수 있게 아래를 비워 둠
   navigator.vibrate?.(30);
   bdMove(o.x, o.y);
   S.bd.raf = requestAnimationFrame(bdScroll);
 }
 const bdRest = g => g.slots.filter(x => x !== g.me);
-// 손가락 높이 → 몇 번째 자리 (보이는 버블 기준)
+// 손가락 높이 → 몇 번째 자리. 손가락이 아니라 손가락 위에 뜬 버블의 가운데로 정함 (보이는 대로 놓이게).
+// 다른 버블은 지금 그려진 자리(비워 둔 빈자리만큼 내려간 것까지)로 비교해서, 빈자리에 버블을 맞춰 두면 자리가 튀지 않음
 function bdIndex(g, y) {
-  const dS = $('#listView').scrollTop - g.scroll0, rest = bdRest(g);
+  const dS = $('#listView').scrollTop - g.scroll0, rest = bdRest(g), yc = y - BD_LIFT - g.h / 2;
   for (let k = 0; k < rest.length; k++) {
-    const x = rest[k], top = x.r.top - dS - (g.me && x.i > g.me.i ? g.H : 0);
-    if (y < top + x.r.height / 2) return k;
+    const x = rest[k], top = x.b.top - dS - (g.me && x.i > g.me.i ? g.H : 0) + (g.k != null && k >= g.k ? g.H : 0);
+    if (yc < top + x.b.height / 2) return k;
   }
   return rest.length;
 }
 // 들어갈 자리 아래 버블은 내려가고, 든 버블 자리는 위로 메워짐
 function bdShift(g, k) {
+  g.k = k;
   for (const [j, x] of bdRest(g).entries()) {
     const dy = k == null ? 0 : (g.me && x.i > g.me.i ? -g.H : 0) + (j >= k ? g.H : 0);
     x.el.style.transform = dy ? `translateY(${dy}px)` : '';
@@ -1469,7 +1473,7 @@ function bdMove(x, y) {
   if (t?.date) {
     const r = t.tab.getBoundingClientRect();
     g.ghost.style.transform = `translate(${r.left + r.width / 2 - g.w / 2}px, ${r.top + r.height / 2 - g.h / 2}px) scale(.55)`;
-  } else g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 30}px)`;
+  } else g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - BD_LIFT}px)`;
   g.ghost.classList.toggle('on-tab', !!t?.date);
   g.ghost.classList.toggle('nodrop', !t);
   bdLoupe(g, t);
@@ -1510,9 +1514,12 @@ function bdSwitchDay(date) {
 function bdScroll() {
   const g = S.bd;
   if (!g) return;
-  const sc = $('#listView'), r = sc.getBoundingClientRect(), bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight);
+  // 아래쪽은 🗑 바로 위에서부터 내려 감기 (맨 끝 자리가 🗑에 가려 놓을 수 없으면 안 되니까)
+  const sc = $('#listView'), r = sc.getBoundingClientRect(), trash = $('#dragTrash')?.getBoundingClientRect();
+  const bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight, trash ? trash.top - 20 : innerHeight);
+  if (g.y <= bottom - 56) g.downOk = true; // 위에서 내려왔을 때만 아래로 감음 (맨 아래 버블·가볼 곳을 들고 올라갈 땐 안 감김)
   if (g.y > r.top && g.y < r.top + 56) { sc.scrollBy(0, -8); bdMove(g.x, g.y); }
-  else if (g.y > bottom - 56 && g.y < bottom) { sc.scrollBy(0, 8); bdMove(g.x, g.y); }
+  else if (g.downOk && g.y > bottom - 56 && g.y < bottom) { sc.scrollBy(0, 8); bdMove(g.x, g.y); }
   // 날짜 탭 줄의 왼쪽·오른쪽 끝에 대고 있으면 탭이 옆으로 넘어감 (화면 밖 날짜로 옮길 때)
   const tabs = $('#dayTabs'), tb = tabs && !tabs.hidden ? tabs.getBoundingClientRect() : null;
   if (tb && g.y >= tb.top && g.y <= tb.bottom) {
@@ -1537,6 +1544,7 @@ function bdEnd(cancel) {
   document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
   $('#dragTrash')?.classList.remove('show', 'hot');
   $('#favTray')?.classList.remove('folded');
+  $('#listView').classList.remove('bd-room');
   if ($('#tabLoupe')) $('#tabLoupe').hidden = true;
   S.dragJustEnded = Date.now();
   const t = cancel ? null : g.target;
