@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291508';
-import { arrivalGuide } from './guides.js?v=202610291508';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291515';
+import { arrivalGuide } from './guides.js?v=202610291515';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291508';
-import { createMap } from './map.js?v=202610291508';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291508';
-import { PROXY_URL } from './config.js?v=202610291508';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291508';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291508';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291508';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291508';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291508';
-import { findCodes, codeName } from './codes.js?v=202610291508';
+} from './schedule.js?v=202610291515';
+import { createMap } from './map.js?v=202610291515';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291515';
+import { PROXY_URL } from './config.js?v=202610291515';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291515';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291515';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291515';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291515';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291515';
+import { findCodes, codeName } from './codes.js?v=202610291515';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1311,7 +1311,7 @@ function renderTimeline() {
     const first = i === 0 && n > 1 && !s.proc;
     const sub = first ? `${fmtClock(s.depart)}쯤 출발`
       : s.proc ? `✈️ 착륙 · 🛂 입국 절차 약 ${fmtDur(s.proc)}`
-      : fixed ? `🕒 ${fmtClock(it.time)} 예약${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤까지` : ''}`
+      : fixed ? `🕒 ${fmtClock(it.time)} 예약`
       : i === n - 1 ? '마지막 · 순서대로' : '순서대로 둘러보기';
     const timeCell = fixed || s.proc ? `<div class="row-time">${fmtClock(s.arrive)}</div>`
       : first ? `<div class="row-time soft">${fmtClock(s.depart)}<small>출발</small></div>`
@@ -1582,7 +1582,7 @@ function peekHtml(d, i) {
   if (done) lines.push(line('✓', state === 'skip' ? '건너뜀' : '다녀왔어요'));
   if (s.proc) lines.push(line('✈️', `${fmtClock(s.arrive)} 착륙 · 입국 절차 약 ${fmtDur(s.proc)}`));
   else if (first) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`));
-  else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤까지` : ''}`));
+  else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>`));
   else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
   if (s.late > 0 && !done && !boardMode()) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
   if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
