@@ -1,5 +1,5 @@
 // 구글 Routes API(경로)와 Places API(장소 검색) 호출
-import { PROXY_URL } from './config.js?v=202610291538';
+import { PROXY_URL } from './config.js?v=202610291545';
 
 const ROUTE_FIELDS = [
   'routes.duration',
@@ -154,6 +154,15 @@ export async function searchPlaces(key, query, near) {
 let nominatimPausedUntil = 0;
 
 /** API 키 없이 쓰는 무료 검색 (OpenStreetMap). 결과가 구글보다 부정확할 수 있음 */
+// 지도에서 꾹 누른 곳의 이름·주소 (무료 지도). 이름이 없는 길·빈 땅이면 이름은 빈칸
+export async function reverseFree(lat, lng) {
+  const res = await fetchT(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ko&lat=${lat}&lon=${lng}`, {}, 8000);
+  if (!res.ok) return null;
+  const p = await res.json();
+  if (!p || p.error) return null;
+  return { name: p.name || '', address: p.display_name || '', kind: p.type || '' };
+}
+
 export async function searchPlacesFree(query, near) {
   let u = `https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ko&q=${encodeURIComponent(query)}`;
   // near가 있으면 그 주변(약 5km) 안에서만 찾기

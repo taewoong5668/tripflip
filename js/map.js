@@ -14,6 +14,31 @@ function loadGoogle(key) {
   });
 }
 
+// 지도를 꾹 누르기 (0.55초). 손가락이 움직이거나 두 손가락(확대·축소)이면 취소. 구글맵·무료 지도 공통
+function holdOn(el, view, toLatLng, cb) {
+  let t = 0, p0 = null;
+  const ids = new Set(), stop = () => { clearTimeout(t); t = 0; };
+  el.addEventListener('pointerdown', e => {
+    ids.add(e.pointerId);
+    stop();
+    if (ids.size > 1 || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const r = el.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    p0 = { x: e.clientX, y: e.clientY };
+    t = setTimeout(() => {
+      t = 0;
+      const ll = toLatLng(x, y);
+      if (!ll) return;
+      view.heldAt = Date.now(); // 손을 뗄 때 생기는 "누르기"는 무시
+      cb({ ...ll, x, y });
+    }, 550);
+  }, true);
+  el.addEventListener('pointermove', e => { if (t && Math.hypot(e.clientX - p0.x, e.clientY - p0.y) > 8) stop(); }, true);
+  const up = e => { ids.delete(e.pointerId); stop(); };
+  el.addEventListener('pointerup', up, true);
+  el.addEventListener('pointercancel', up, true);
+}
+const justHeld = v => Date.now() - (v.heldAt || 0) < 600;
+
 export async function createMap(el, apiKey, onAuthFail) {
   if (apiKey) {
     try {
@@ -37,7 +62,12 @@ class GoogleView {
       disableDefaultUI: true, zoomControl: false, gestureHandling: 'greedy', clickableIcons: false,
       colorScheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'DARK' : 'LIGHT',
     });
+    this.el = el;
     this.markers = []; this.lines = [];
+    // 화면 좌표 → 위도·경도 변환용 (구글맵은 오버레이를 하나 깔아야 변환 함수를 줌)
+    this.ov = new google.maps.OverlayView();
+    this.ov.onAdd = this.ov.draw = this.ov.onRemove = () => {};
+    this.ov.setMap(this.map);
   }
   setPlaces(list) {
     this.markers.forEach(m => m.setMap(null));
@@ -81,13 +111,21 @@ class GoogleView {
   }
   panTo(p, zoom) { this.map.panTo(p); if (zoom) this.map.setZoom(zoom); }
   resize() { /* 구글맵은 크기 변화를 스스로 감지 */ }
-  onClick(cb) { this.map.addListener('click', e => cb({ lat: e.latLng.lat(), lng: e.latLng.lng() })); }
+  onClick(cb) { this.map.addListener('click', e => { if (!justHeld(this)) cb({ lat: e.latLng.lat(), lng: e.latLng.lng() }); }); }
   onDrag(cb) { this.map.addListener('dragstart', cb); }
+  onMoveStart(cb) { this.map.addListener('dragstart', cb); this.map.addListener('zoom_changed', cb); }
+  onLongPress(cb) {
+    holdOn(this.el, this, (x, y) => {
+      const ll = this.ov.getProjection()?.fromContainerPixelToLatLng(new google.maps.Point(x, y));
+      return ll && { lat: ll.lat(), lng: ll.lng() };
+    }, cb);
+  }
 }
 
 class LeafletView {
   constructor(el) {
     this.kind = 'osm';
+    this.el = el;
     this.map = L.map(el, { zoomControl: false, attributionControl: true }).setView([37.5665, 126.978], 12);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(this.map);
     this.markers = []; this.lines = [];
@@ -123,6 +161,10 @@ class LeafletView {
   panTo(p, zoom) { zoom ? this.map.setView([p.lat, p.lng], zoom) : this.map.panTo([p.lat, p.lng]); }
   // 숨겨져 있던 지도를 보여줄 때 크기와 선 그리기 영역을 다시 계산
   resize() { this.map.invalidateSize({ pan: false }); }
-  onClick(cb) { this.map.on('click', e => cb({ lat: e.latlng.lat, lng: e.latlng.lng })); }
+  onClick(cb) { this.map.on('click', e => { if (!justHeld(this)) cb({ lat: e.latlng.lat, lng: e.latlng.lng }); }); }
   onDrag(cb) { this.map.on('dragstart', cb); }
+  onMoveStart(cb) { this.map.on('dragstart zoomstart', cb); }
+  onLongPress(cb) {
+    holdOn(this.el, this, (x, y) => { const ll = this.map.containerPointToLatLng([x, y]); return { lat: ll.lat, lng: ll.lng }; }, cb);
+  }
 }

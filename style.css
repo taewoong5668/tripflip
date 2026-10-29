@@ -619,6 +619,18 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .bub small { flex: none; font-size: 11px; font-weight: 700; color: var(--muted); }
 .bub.used { opacity: .55; }
 .bub.lifted { opacity: .3; }
+/* 버블: 종류마다 살짝 다른 빛깔 + 왼쪽 위에 동그란 반짝임 (비눗방울처럼) */
+.bub, .bubble { position: relative; }
+.bub::after, .bubble::after { content: ""; position: absolute; left: 16%; top: 3px; width: 40%; height: 40%; border-radius: 999px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.8), rgba(255,255,255,0)); opacity: .75; }
+@media (prefers-color-scheme: dark) { .bub::after, .bubble::after { opacity: .12; } }
+.cat-food { --bt: rgba(226, 112, 86, .16); }
+.cat-cafe { --bt: rgba(176, 128, 82, .16); }
+.cat-shop { --bt: rgba(146, 110, 196, .16); }
+.cat-sight { --bt: rgba(64, 158, 132, .16); }
+.cat-stay { --bt: rgba(70, 110, 170, .16); }
+.cat-etc { --bt: rgba(120, 130, 140, .10); }
+.bub[class*="cat-"] { background-image: linear-gradient(var(--bt), var(--bt)), linear-gradient(180deg, color-mix(in srgb, var(--card) 55%, #fff) 0%, var(--card) 48%, color-mix(in srgb, var(--card-2) 70%, var(--card)) 100%); }
 .bub-ghost { position: fixed; left: 0; top: 0; z-index: 3500; pointer-events: none; flex: none; max-width: 70vw; transform-origin: center; border-color: var(--rule);
   box-shadow: inset 0 1px 1px rgba(255,255,255,.85), 0 18px 40px rgba(17,34,51,.3); scale: 1.06; overflow: visible; }
 .gh-tip { position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 12px; font-weight: 800;
@@ -740,6 +752,28 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .pk-line { display: flex; gap: 9px; }
 .pk-line > span:first-child { flex: none; width: 20px; text-align: center; }
 .pk-memo { color: var(--muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* 지도를 꾹 누르면 뜨는 말풍선 */
+.map-drop { position: absolute; z-index: 650; transform: translate(-50%, calc(-100% - 24px)); width: 240px; padding: 10px 10px 10px 14px; border-radius: 18px;
+  background: var(--card); box-shadow: 0 10px 30px rgba(17, 34, 51, .25); animation: pkin .2s cubic-bezier(.32,.72,0,1); }
+.map-drop::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 14px; background: var(--card); transform: translateX(-50%) rotate(45deg); border-radius: 0 0 3px 0; }
+.md-name { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
+.md-btns { display: flex; gap: 6px; }
+.md-make { flex: 1; padding: 10px 12px; border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-weight: 800; font-size: 14px; }
+.md-x { flex: none; width: 38px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); }
+/* 버블 만들기 창 */
+.bub-stage { display: grid; place-items: center; padding: 18px 0 10px; }
+.bub.big { flex: none; max-width: 100%; padding: 16px 24px; gap: 10px; animation: bubfloat 3s ease-in-out infinite; }
+.bub.big b { font-size: 18px; }
+.bub.big .bub-ic { font-size: 22px; }
+@keyframes bubfloat { 50% { transform: translateY(-4px); } }
+.bub-addr { text-align: center; margin-bottom: 10px; }
+.bub-cats { margin: 4px 0 14px; }
+.bub-go { width: 100%; padding: 15px; border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 16px; font-weight: 800; }
+/* 보관함의 버블 목록: 누르면 아래로 할 일이 펼쳐짐 */
+.fav-bubs { display: flex; flex-direction: column; gap: 9px; margin-bottom: 8px; }
+button.bub { width: 100%; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.fav-bub.open .bub { box-shadow: 0 0 0 2px var(--accent), 0 3px 10px rgba(17,34,51,.1); }
+.fav-acts { padding: 8px 6px 2px; display: flex; flex-direction: column; gap: 6px; animation: pop .2s ease; }
 .pk-acts { display: flex; gap: 8px; margin-top: 14px; }
 .pk-acts button { flex: 1; min-width: 0; padding: 11px 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-2); color: var(--text); font-size: 13px; font-weight: 800; white-space: nowrap; }
 .pk-acts button:first-child { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

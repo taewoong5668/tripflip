@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291538';
-import { arrivalGuide } from './guides.js?v=202610291538';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291545';
+import { arrivalGuide } from './guides.js?v=202610291545';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291538';
-import { createMap } from './map.js?v=202610291538';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291538';
-import { PROXY_URL } from './config.js?v=202610291538';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291538';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291538';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291538';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291538';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291538';
-import { findCodes, codeName } from './codes.js?v=202610291538';
+} from './schedule.js?v=202610291545';
+import { createMap } from './map.js?v=202610291545';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291545';
+import { PROXY_URL } from './config.js?v=202610291545';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291545';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291545';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291545';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291545';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291545';
+import { findCodes, codeName } from './codes.js?v=202610291545';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -661,13 +661,13 @@ function toggleFav(p, hint = '') {
   const place = p.place || p.name, ex = findFav(S.favs, { ...p, place });
   if (ex) {
     S.favs = S.favs.filter(f => f !== ex); saveFavs();
-    toast(`☆ ${ex.place} 즐겨찾기에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(ex); saveFavs(); rerenderKeep(); } });
+    toast(`🫧 ${ex.place} 버블을 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(ex); saveFavs(); rerenderKeep(); } });
   } else {
-    if (!hasPos(p)) { toast('위치를 모르는 곳은 즐겨찾기할 수 없어요'); return; }
+    if (!hasPos(p)) { toast('위치를 모르는 곳은 버블로 만들 수 없어요'); return; }
     const f = { id: newId(), place, address: p.address || '', lat: p.lat, lng: p.lng, cat: guessCat(place, hint), added: Date.now() };
     S.favs.push(f); saveFavs();
     const c = catOf(f.cat);
-    toast(`⭐ ${place} 저장 · ${c.icon} ${c.label}`);
+    toast(`🫧 ${place} 버블을 만들었어요 · ${c.icon} ${c.label}`);
   }
   rerenderKeep();
 }
@@ -677,12 +677,13 @@ function rerenderKeep() {
   if (topLayer() === 'detail') renderDetail();
   if (S.tray) renderTray();
 }
-const favStar = p => (findFav(S.favs, { ...p, place: p.place || p.name }) ? '★' : '☆');
+const isFav = p => !!findFav(S.favs, { ...p, place: p.place || p.name });
+const favStar = p => (isFav(p) ? '🫧✓' : '🫧＋'); // 버블로 만들었는지 (작은 버튼용)
 
 function keepHtml(sh) {
   const mems = memList(S.mems);
-  const tabs = `<div class="seg"><button class="${sh.tab === 'fav' ? 'on' : ''}" data-act="keepTab" data-tab="fav">⭐ 즐겨찾기 ${S.favs.length || ''}</button><button class="${sh.tab === 'mem' ? 'on' : ''}" data-act="keepTab" data-tab="mem">📸 추억 ${mems.length || ''}</button></div>`;
-  return `<div class="sheet-head"><div><div class="st-label">보관함</div><b>${sh.tab === 'fav' ? '⭐ 가고 싶은 곳' : '📸 다녀온 곳'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
+  const tabs = `<div class="seg"><button class="${sh.tab === 'fav' ? 'on' : ''}" data-act="keepTab" data-tab="fav">🫧 버블 ${S.favs.length || ''}</button><button class="${sh.tab === 'mem' ? 'on' : ''}" data-act="keepTab" data-tab="mem">📸 추억 ${mems.length || ''}</button></div>`;
+  return `<div class="sheet-head"><div><div class="st-label">보관함</div><b>${sh.tab === 'fav' ? '🫧 내 버블' : '📸 다녀온 곳'}</b></div><button class="x" data-act="closeSheet">✕</button></div>
     ${tabs}${sh.tab === 'fav' ? favBody(sh) : memBody(mems)}`;
 }
 
@@ -695,26 +696,28 @@ function favBody(sh) {
   const list = S.favs.filter(f => sh.cat === 'all' || f.cat === sh.cat)
     .map(f => ({ f, d: c0 && hasPos(f) ? haversine(c0, f) : null })).sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
   const card = ({ f, d }) => {
-    const c = catOf(f.cat);
-    return `<div class="fav-card">
-      <div class="fav-top"><span class="fav-ic">${c.icon}</span><div class="fav-name"><b>${esc(f.place)}</b><div class="muted small">${[f.address, d != null && fmtDist(d)].filter(Boolean).map(esc).join(' · ')}</div></div></div>
-      ${sh.catEdit === f.id ? `<div class="chips">${FAV_CATS.map(x => `<button class="chip-btn ${x.id === f.cat ? 'on' : ''}" data-act="favSetCat" data-id="${f.id}" data-cat="${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>` : ''}
-      <div class="chips"><button class="chip-btn on" data-act="favAdd" data-id="${f.id}">＋ 일정에 넣기</button><button class="chip-btn" data-act="favMap" data-id="${f.id}">🗺️ 지도</button><button class="chip-btn" data-act="favCatEdit" data-id="${f.id}">🏷 ${c.label}</button><button class="chip-btn" data-act="favDel" data-id="${f.id}" aria-label="즐겨찾기 빼기">🗑</button></div>
+    const c = catOf(f.cat), open = sh.open === f.id;
+    return `<div class="fav-bub ${open ? 'open' : ''}">
+      <button class="bub cat-${f.cat}" data-act="favOpen" data-id="${f.id}"><span class="bub-ic">${c.icon}</span><b>${esc(f.place)}</b>${d != null ? `<small>${fmtDist(d)}</small>` : ''}</button>
+      ${open ? `<div class="fav-acts">${f.address ? `<div class="muted small">📍 ${esc(f.address)}</div>` : ''}
+        ${sh.catEdit === f.id ? `<div class="chips">${FAV_CATS.map(x => `<button class="chip-btn ${x.id === f.cat ? 'on' : ''}" data-act="favSetCat" data-id="${f.id}" data-cat="${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>` : ''}
+        <div class="chips"><button class="chip-btn on" data-act="favAdd" data-id="${f.id}">＋ 일정에 넣기</button>${hasPos(f) ? `<button class="chip-btn" data-act="favMap" data-id="${f.id}">🗺️ 지도</button>` : ''}<button class="chip-btn" data-act="favCatEdit" data-id="${f.id}">🏷 ${c.label}</button><button class="chip-btn" data-act="favDel" data-id="${f.id}" aria-label="버블 빼기">🗑</button></div>
+      </div>` : ''}
     </div>`;
   };
   // 가까운 곳(50km 안)과 다른 도시를 나눠서
   const isHere = x => x.d != null && x.d < 50000;
   const here = list.filter(isHere), far = list.filter(x => !isHere(x) && hasPos(x.f)), noPos = list.filter(x => !hasPos(x.f));
   const res = Array.isArray(sh.res)
-    ? sh.res.map((r, j) => `<div class="fav-res"><div><b>${esc(r.name)}</b><div class="muted small">${esc(r.address || r.kind || '')}</div></div><button class="chip-btn ${favStar(r) === '★' ? 'on' : ''}" data-act="favResAdd" data-j="${j}">${favStar(r)} 저장</button></div>`).join('') || '<div class="muted small pad">찾지 못했어요. 영어 이름으로도 찾아보세요.</div>'
+    ? sh.res.map((r, j) => `<div class="fav-res"><div><b>${esc(r.name)}</b><div class="muted small">${esc(r.address || r.kind || '')}</div></div><button class="chip-btn ${isFav(r) ? 'on' : ''}" data-act="favResAdd" data-j="${j}">${isFav(r) ? '🫧 있음' : '🫧 만들기'}</button></div>`).join('') || '<div class="muted small pad">찾지 못했어요. 영어 이름으로도 찾아보세요.</div>'
     : sh.res === 'loading' ? '<div class="muted small pad">찾는 중…</div>' : '';
-  return `<div class="fav-search"><input id="favQ" placeholder="가고 싶은 곳 검색해서 저장" value="${esc(sh.q || '')}"><button class="chip-btn on" data-act="favSearch">찾기</button></div>${res}
+  return `<div class="fav-search"><input id="favQ" placeholder="가고 싶은 곳 검색해서 버블 만들기" value="${esc(sh.q || '')}"><button class="chip-btn on" data-act="favSearch">찾기</button></div>${res}
     ${S.favs.length ? `${cats}
-      <button class="tray-btn" data-act="favTray">📝 가볼 곳 창 열기 <span class="muted small">· 꾹 눌러 날짜·시간표에 끌어 놓기</span></button>
-      ${here.length ? `<div class="fav-group">📍 이 근처</div>${here.map(card).join('')}` : ''}
-      ${far.length ? `${here.length ? '<div class="fav-group">🌏 다른 곳</div>' : ''}${far.map(card).join('')}` : ''}
-      ${noPos.length ? `<div class="fav-group">📝 이름만 적어 둔 곳 <span class="muted small">· 일정에 넣으면 위치를 찾아요</span></div>${noPos.map(card).join('')}` : ''}`
-    : '<div class="muted pad">아직 즐겨찾기가 없어요.<br>장소 상세 화면이나 추천 결과의 <b>☆</b>를 누르거나, 위에서 검색해서 저장하세요.</div>'}`;
+      <button class="tray-btn" data-act="favTray">🫧 가볼 곳 버블 창 열기 <span class="muted small">· 꾹 눌러 날짜·시간표에 끌어 놓기</span></button>
+      ${here.length ? `<div class="fav-group">📍 이 근처</div><div class="fav-bubs">${here.map(card).join('')}</div>` : ''}
+      ${far.length ? `${here.length ? '<div class="fav-group">🌏 다른 곳</div>' : ''}<div class="fav-bubs">${far.map(card).join('')}</div>` : ''}
+      ${noPos.length ? `<div class="fav-group">📝 이름만 적어 둔 곳 <span class="muted small">· 일정에 넣으면 위치를 찾아요</span></div><div class="fav-bubs">${noPos.map(card).join('')}</div>` : ''}`
+    : '<div class="muted pad">아직 버블이 없어요.<br><b>지도를 꾹 누르거나</b>, 장소 상세·추천 결과의 <b>🫧</b>를 누르거나, 위에서 검색해서 만들어 보세요.</div>'}`;
 }
 
 async function favSearch() {
@@ -819,7 +822,7 @@ const importInput = hiddenInput('.json,application/json', false, async ([f]) => 
     const nm = memList(data.mems).length, nf = (data.favs || []).length;
     ({ mems: S.mems, favs: S.favs } = mergeBackup({ mems: S.mems, favs: S.favs }, data));
     saveMems(); saveFavs(); rerenderKeep();
-    toast(`⬆ 추억 ${nm}곳, 즐겨찾기 ${nf}곳을 불러왔어요`, 4000);
+    toast(`⬆ 추억 ${nm}곳, 버블 ${nf}곳을 불러왔어요`, 4000);
   } catch (e) { toast(`불러오지 못했어요: ${e.message}`, 5000); }
 });
 
@@ -894,13 +897,13 @@ function renderTray() {
     .map(f => ({ f, on: usedOn[f.place.trim().toLowerCase()] }))
     .sort((a, b) => (a.on ? 1 : 0) - (b.on ? 1 : 0));
   const used = new Set(S.favs.map(f => f.cat));
-  el.innerHTML = `<div class="ft-head"><b>📝 가볼 곳 <span class="muted">${S.favs.length || ''}</span></b>
-      <span class="ft-tools"><button data-act="keep">⭐ 찾기·추억</button><button class="x" data-act="favTray" aria-label="닫기">✕</button></span></div>
-    <div class="ft-add"><textarea id="wishIn" rows="1" placeholder="가고 싶은 곳을 마구 적어 보세요 (여러 곳은 줄바꿈·쉼표로)">${esc(typed)}</textarea><button data-act="wishAdd">추가</button></div>
+  el.innerHTML = `<div class="ft-head"><b>🫧 가볼 곳 버블 <span class="muted">${S.favs.length || ''}</span></b>
+      <span class="ft-tools"><button data-act="keep">🔎 찾기·추억</button><button class="x" data-act="favTray" aria-label="닫기">✕</button></span></div>
+    <div class="ft-add"><textarea id="wishIn" rows="1" placeholder="가고 싶은 곳을 마구 적으면 버블이 돼요 (여러 곳은 줄바꿈·쉼표로)">${esc(typed)}</textarea><button data-act="wishAdd">만들기</button></div>
     ${used.size > 1 ? `<div class="ft-cats"><button class="${S.tray.cat === 'all' ? 'on' : ''}" data-act="trayCat" data-cat="all">전체</button>${FAV_CATS.filter(c => used.has(c.id)).map(c => `<button class="${S.tray.cat === c.id ? 'on' : ''}" data-act="trayCat" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join('')}</div>` : ''}
-    <div class="ft-list">${list.map(({ f, on }) => `<div class="bub ${on ? 'used' : ''}" data-fid="${f.id}"><span class="bub-ic">${catOf(f.cat).icon}</span><b>${esc(f.place)}</b>${on ? `<small>✓ ${shortDate(on)}</small>` : ''}</div>`).join('')
-      || '<div class="muted small ft-empty">위에 가고 싶은 곳을 적고 <b>추가</b>를 누르면 버튼이 생겨요</div>'}</div>
-    ${list.length ? '<div class="ft-tip">버튼을 <b>꾹 눌러</b> 위 날짜에 대면 그 날로 넘어가요 → 원하는 자리에 놓으면 끝</div>' : ''}`;
+    <div class="ft-list">${list.map(({ f, on }) => `<div class="bub cat-${f.cat} ${on ? 'used' : ''}" data-fid="${f.id}"><span class="bub-ic">${catOf(f.cat).icon}</span><b>${esc(f.place)}</b>${on ? `<small>✓ ${shortDate(on)}</small>` : ''}</div>`).join('')
+      || '<div class="muted small ft-empty">위에 가고 싶은 곳을 적고 <b>만들기</b>를 누르거나, <b>지도를 꾹 누르면</b> 버블이 생겨요</div>'}</div>
+    ${list.length ? '<div class="ft-tip">버블을 <b>꾹 눌러</b> 위 날짜에 대면 그 날로 넘어가요 → 원하는 자리에 놓으면 끝</div>' : ''}`;
   fitWishBox();
 }
 // 적는 칸은 글이 늘면 4줄까지 커짐, 서랍 높이만큼 시간표 아래 여백
@@ -1568,6 +1571,72 @@ function tabPop(date) {
   tab.classList.remove('got'); void tab.offsetWidth; tab.classList.add('got');
   setTimeout(() => tab.classList.remove('got'), 700);
 }
+// 지도에서 꾹 누른 곳: 핀과 [🫧 버블 만들기] 말풍선. 이름·주소는 무료 지도로 찾아서 미리 채움
+async function mapHold(ll) {
+  if (topLayer() !== 'map' || S.pick || S.sheet) return;
+  navigator.vibrate?.(25);
+  const dr = S.drop = { lat: ll.lat, lng: ll.lng, x: ll.x, y: ll.y, name: '', address: '', busy: true };
+  renderDrop(); renderMap(false);
+  try {
+    const r = await reverseFree(ll.lat, ll.lng);
+    if (r) Object.assign(dr, { name: r.name, address: r.address, kind: r.kind });
+  } catch { /* 이름 없이도 만들 수 있음 */ }
+  dr.busy = false;
+  if (S.drop === dr) renderDrop();
+}
+const shortAddr = a => (a || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 3).join(', ');
+function renderDrop() {
+  let el = $('#mapDrop');
+  if (!S.drop) { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'mapDrop'; el.className = 'map-drop'; $('#mapView').append(el); }
+  const dr = S.drop, half = 120;
+  el.style.left = `${Math.max(half + 8, Math.min(dr.x, $('#mapView').clientWidth - half - 8))}px`;
+  el.style.top = `${dr.y}px`;
+  el.innerHTML = `<div class="md-name">${dr.busy ? '<span class="muted">어디인지 찾는 중…</span>' : esc(dr.name || shortAddr(dr.address) || '이 위치')}</div>
+    <div class="md-btns"><button class="md-make" data-act="dropMake">🫧 버블 만들기</button><button class="md-x" data-act="dropClose" aria-label="닫기">✕</button></div>`;
+}
+function clearDrop() {
+  if (!S.drop) return;
+  S.drop = null;
+  renderDrop(); renderMap(false);
+}
+function openBubbleMaker(base) {
+  S.sheet = { type: 'bubble', name: base.name || '', address: base.address || '', lat: base.lat, lng: base.lng, cat: base.name ? guessCat(base.name, base.kind) : 'etc', catTouched: false };
+  renderSheet(); renderMap(false);
+  setTimeout(() => { const t = $('#bubName'); t?.focus(); t?.select(); }, 300);
+}
+function bubbleHtml(sh) {
+  const c = catOf(sh.cat);
+  return `<div class="sheet-head"><div><div class="st-label">지도에서 고른 곳</div><b>🫧 버블 만들기</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <div class="bub-stage"><div class="bub big cat-${sh.cat}" id="bubPrev"><span class="bub-ic">${c.icon}</span><b>${esc(sh.name) || '버블 이름'}</b></div></div>
+    ${sh.address ? `<div class="muted small bub-addr">📍 ${esc(shortAddr(sh.address))}</div>` : ''}
+    <label class="field">버블 이름<input id="bubName" value="${esc(sh.name)}" placeholder="예: 숙소 앞 빵집" enterkeyhint="done" autocomplete="off"></label>
+    <div class="chips bub-cats">${FAV_CATS.map(x => `<button class="chip-btn ${x.id === sh.cat ? 'on' : ''}" data-act="bubCat" data-cat="${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>
+    <button class="primary bub-go" data-act="bubMake">🫧 버블 만들기</button>`;
+}
+// 이름을 적는 대로 위 버블 미리보기가 바뀌고, 종류도 이름으로 짐작 (직접 고르면 그대로)
+function bubbleTyped(v) {
+  const sh = S.sheet;
+  if (sh?.type !== 'bubble') return;
+  sh.name = v;
+  if (!sh.catTouched) sh.cat = guessCat(v);
+  const c = catOf(sh.cat), prev = $('#bubPrev');
+  if (prev) { prev.className = `bub big cat-${sh.cat}`; prev.innerHTML = `<span class="bub-ic">${c.icon}</span><b>${esc(v.trim()) || '버블 이름'}</b>`; }
+  document.querySelectorAll('.bub-cats [data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === sh.cat));
+}
+function makeBubble() {
+  const sh = S.sheet, name = ($('#bubName')?.value || '').trim();
+  if (!name) { $('#bubName')?.focus(); toast('버블 이름을 적어 주세요'); return; }
+  const ex = findFav(S.favs, { place: name, lat: sh.lat, lng: sh.lng });
+  if (ex && hasPos(ex)) { toast(`🫧 ${ex.place} 버블이 이미 있어요`); return; }
+  if (ex) Object.assign(ex, { lat: sh.lat, lng: sh.lng, address: sh.address, cat: sh.cat }); // 이름만 적어 둔 버블에 위치를 붙임
+  else S.favs.push({ id: newId(), place: name, address: sh.address || '', lat: sh.lat, lng: sh.lng, cat: sh.cat, added: Date.now() });
+  saveFavs();
+  closeSheet();
+  if (S.tray) renderTray();
+  navigator.vibrate?.(20);
+  toast(`🫧 ${name} 버블을 만들었어요`, 5000, { label: '가볼 곳 보기', fn: () => { if (!S.tray) toggleTray(true); } });
+}
 function removeWish(fav) {
   S.favs = S.favs.filter(f => f !== fav); saveFavs(); renderTray();
   toast(`🗑 ${fav.place} 가볼 곳에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(fav); saveFavs(); rerenderKeep(); } });
@@ -1739,7 +1808,7 @@ function renderDetail() {
     </div>
     <div class="dt-card dt-acts">
       <button data-act="editPlace" data-i="${i}">✏️ 수정</button>
-      ${hasPos(it) ? `<button data-act="favToggle" data-i="${i}">${favStar(it) === '★' ? '★ 즐겨찾기됨' : '☆ 즐겨찾기'}</button>` : ''}
+      ${hasPos(it) ? `<button data-act="favToggle" data-i="${i}">${isFav(it) ? '🫧 버블 있음' : '🫧 버블 만들기'}</button>` : ''}
       <button data-act="addPlace" data-i="${i + 1}">＋ 이 장소 뒤에 일정 넣기</button>
       ${i > 0 ? `<button data-act="moveUp" data-i="${i}">↑ 순서 앞으로</button>` : ''}
       ${i < n - 1 ? `<button data-act="moveDown" data-i="${i}">↓ 순서 뒤로</button>` : ''}
@@ -1959,6 +2028,8 @@ function renderMap(fit) {
   if (hasPos(og)) places.push({ lat: og.lat, lng: og.lng, label: '출', color: '#43a047', shape: 'square', ring: true, z: 19, title: og.place });
   if (S.poi) places.push({ lat: S.poi.lat, lng: S.poi.lng, label: '★', color: '#ff7043', ring: true, z: 18, title: S.poi.name });
   if (hasPos(dr)) places.push({ lat: dr.lat, lng: dr.lng, label: '＋', color: '#fdd835', textColor: '#000', ring: true, z: 20, title: dr.place });
+  const bp = S.drop || (S.sheet?.type === 'bubble' ? S.sheet : null); // 꾹 눌러 버블을 만드는 중인 곳
+  if (bp) places.push({ lat: bp.lat, lng: bp.lng, label: '＋', color: '#3a5470', ring: true, z: 21, title: bp.name || '이 위치' });
   S.map.setPlaces(places);
   drawLines();
   if (fit) S.map.fit([...pts, ...[og, dr].filter(hasPos)]);
@@ -2054,6 +2125,7 @@ function applyLayers() {
     el.setAttribute('aria-hidden', String(name !== top));
   }
   S.view = top === 'map' ? 'map' : 'list';
+  if (top !== 'map' && S.drop) { S.drop = null; renderDrop(); }
   document.body.classList.toggle('show-map', top === 'map');
   $('#btnBack').hidden = S.stack.length < 2;
   $('#iconMap').toggleAttribute('hidden', top === 'map');
@@ -2118,13 +2190,14 @@ function backToList(i) {
 
 // 앱 안에서 돌아갈 화면이 남아 있는지
 // 처음 화면이 아니면 뒤로 가기로 처음 화면에 돌아올 수 있음
-const canGoBack = () => !$('#alarm').hidden || !!S.peek || !!S.viewer || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0
+const canGoBack = () => !$('#alarm').hidden || !!S.peek || !!S.drop || !!S.viewer || S.pick || !!S.sheet || S.stack.length > 1 || S.dayBack.length > 0
   || !S.home || (S.home.step !== 'kind' && S.home.step !== 'done') || S.home.fromDone;
 
 // 휴대폰 뒤로 가기: 바로 전 화면으로. 첫 화면이면 종료할지 물어봄 (앱에서만)
 function goBack() {
   if (!$('#alarm').hidden) { dismissAlarm(); return; }
   if (S.peek) { closePeek(); return; }
+  if (S.drop) { clearDrop(); return; }
   if (S.viewer) { if (S.viewer.codesOn) hideCodes(); else closeViewer(); return; }
   if (S.memMap) { closeMemMap(); return; }
   if (S.pick) { finishPick(); return; }
@@ -2347,7 +2420,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -2513,7 +2586,7 @@ function suggestHtml(sh) {
   else body = sh.results.map((r, j) => `<div class="place-card">
       <div class="place-top"><div class="place-name">${esc(r.name)}</div>${r.rating ? `<div class="place-rate">★ ${r.rating.toFixed(1)} <span class="muted small">(${r.reviews.toLocaleString()})</span></div>` : ''}</div>
       <div class="place-meta">${[r.kind, `🚶 ${fmtDist(r.d)} · 약 ${fmtDur(estimateMin(r.d, 'WALK'))}`, r.hours].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="chips"><button class="chip-btn on" data-act="suggestAdd" data-j="${j}">＋ 일정에 넣기</button><button class="chip-btn" data-act="suggestMap" data-j="${j}">🗺️ 지도</button><button class="chip-btn" data-act="suggestNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="즐겨찾기">${favStar(r)}</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="suggestAdd" data-j="${j}">＋ 일정에 넣기</button><button class="chip-btn" data-act="suggestMap" data-j="${j}">🗺️ 지도</button><button class="chip-btn" data-act="suggestNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="버블 만들기">${favStar(r)}</button></div>
     </div>`).join('');
   const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${sh.slot.web || (sh.slot.type === 'brunch' ? 'brunch cafe' : 'restaurant')} near ${sh.center.lat},${sh.center.lng}`)}`;
   const when = sh.slot.when || `${fmtClock(sh.slot.center)} 무렵`;
@@ -2593,7 +2666,7 @@ function nearHtml(sh) {
   else body = sh.results.map((r, j) => `<div class="place-card">
       <div class="place-top"><div class="place-name">${esc(r.name)}</div><div class="place-rate">${fmtDist(r.d)}</div></div>
       <div class="place-meta">${[r.kind, `🚶 약 ${fmtDur(estimateMin(r.d, 'WALK'))}`, r.hours].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="chips"><button class="chip-btn on" data-act="nearNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="즐겨찾기">${favStar(r)}</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="nearNav" data-j="${j}">길안내</button><button class="chip-btn" data-act="favRes" data-j="${j}" aria-label="버블 만들기">${favStar(r)}</button></div>
     </div>`).join('');
   const q = { conv: 'convenience store', pharmacy: 'pharmacy', hospital: 'hospital' }[sh.near];
   const web = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sh.me ? `${q} near ${sh.me.lat},${sh.me.lng}` : q)}`;
@@ -2662,7 +2735,7 @@ function poiHtml(sh) {
       <div class="poi-name">${esc(r.name)}</div>
       ${r.address ? `<div class="muted small">${esc(r.address)}</div>` : ''}
       <div class="small poi-dist">${walk}${me}</div>
-      <div class="chips"><button class="chip-btn on" data-act="poiMap" data-k="${k}">🗺️ 지도에서 보기</button><button class="chip-btn" data-act="poiNav" data-k="${k}">길안내</button><button class="chip-btn" data-act="poiAdd" data-k="${k}">＋ 일정에 넣기</button><button class="chip-btn" data-act="favRes" data-j="${k}" aria-label="즐겨찾기">${favStar(r)}</button></div>
+      <div class="chips"><button class="chip-btn on" data-act="poiMap" data-k="${k}">🗺️ 지도에서 보기</button><button class="chip-btn" data-act="poiNav" data-k="${k}">길안내</button><button class="chip-btn" data-act="poiAdd" data-k="${k}">＋ 일정에 넣기</button><button class="chip-btn" data-act="favRes" data-j="${k}" aria-label="버블 만들기">${favStar(r)}</button></div>
     </div>`;
   }).join('');
   return `<div class="sheet-head"><div><div class="st-label">주변 추천 · ${esc(it.place)} 근처</div><b>${esc(sh.name)}</b></div><button class="x" data-act="closeSheet">✕</button></div>
@@ -3958,6 +4031,11 @@ async function act(name, el) {
     case 'favToggle': toggleFav(d.items[i], d.items[i].memo); break;
     case 'favAdd': { const f = S.favs.find(x => x.id === el.dataset.id); if (!f) break; closeSheet(); openEditor(null, null, { draft: favDraft(f), autoIndex: true }); break; }
     case 'favMap': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) openExternal(placeUrl(f)); break; }
+    case 'favOpen': S.sheet.open = S.sheet.open === el.dataset.id ? null : el.dataset.id; S.sheet.catEdit = null; renderSheet(); break;
+    case 'dropMake': { const dr = S.drop; if (!dr) break; S.drop = null; renderDrop(); openBubbleMaker(dr); break; }
+    case 'dropClose': clearDrop(); break;
+    case 'bubCat': S.sheet.cat = el.dataset.cat; S.sheet.catTouched = true; bubbleTyped($('#bubName')?.value || ''); break;
+    case 'bubMake': makeBubble(); break;
     case 'favCatEdit': S.sheet.catEdit = S.sheet.catEdit === el.dataset.id ? null : el.dataset.id; renderSheet(); break;
     case 'favSetCat': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) { f.cat = el.dataset.cat; saveFavs(); } S.sheet.catEdit = null; rerenderKeep(); break; }
     case 'favDel': { const f = S.favs.find(x => x.id === el.dataset.id); if (f) toggleFav(f); break; }
@@ -4095,9 +4173,11 @@ document.addEventListener('click', e => {
   const tab = e.target.closest('.tab');
   if (tab) selectDay(tab.dataset.date, true);
 });
+document.addEventListener('input', e => { if (e.target.id === 'bubName') bubbleTyped(e.target.value); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch('dest'); }
   if (e.key === 'Enter' && e.target.id === 'qaIn' && !e.isComposing) { e.preventDefault(); qaSave(); }
+  if (e.key === 'Enter' && e.target.id === 'bubName' && !e.isComposing) { e.preventDefault(); makeBubble(); }
   if (e.key === 'Enter' && e.target.id === 'orQuery') { e.preventDefault(); edSearch('origin'); }
 });
 
@@ -4347,6 +4427,7 @@ async function init() {
 
   S.map = await createMap($('#map'), S.settings.apiKey, msg => toast(msg || '구글맵 API 키를 확인해 주세요', 6000));
   S.map.onClick(ll => {
+    if (S.drop) { clearDrop(); return; }
     if (S.pick && S.sheet?.type === 'edit' && S.pickTarget === 'origin') {
       S.sheet.origin = { place: '지도에서 고른 위치', address: '', lat: ll.lat, lng: ll.lng, from: 'map' };
       S.sheet.oResults = null;
@@ -4365,6 +4446,8 @@ async function init() {
     renderStatus();
   });
   S.map.onDrag(() => (S.follow = false));
+  S.map.onLongPress(mapHold);
+  S.map.onMoveStart(() => { if (S.drop) clearDrop(); }); // 지도를 움직이면 말풍선은 닫음
   renderMap(true);
 
   // 지난번 위치(3시간 안)를 먼저 써 둠: 새 위치를 받기 전에도 내 주변 찾기 등이 바로 되게.
