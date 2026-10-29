@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291432';
-import { arrivalGuide } from './guides.js?v=202610291432';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291508';
+import { arrivalGuide } from './guides.js?v=202610291508';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291432';
-import { createMap } from './map.js?v=202610291432';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291432';
-import { PROXY_URL } from './config.js?v=202610291432';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291432';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291432';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291432';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291432';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291432';
-import { findCodes, codeName } from './codes.js?v=202610291432';
+} from './schedule.js?v=202610291508';
+import { createMap } from './map.js?v=202610291508';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291508';
+import { PROXY_URL } from './config.js?v=202610291508';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291508';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291508';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291508';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291508';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291508';
+import { findCodes, codeName } from './codes.js?v=202610291508';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,6 +24,7 @@ const emptyPlan = () => ({ title: '내 여행', days: [] });
 
 const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false, detailList: false };
 // 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 트립플립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
+const boardMode = () => !S.settings.detailList; // 기본: 버블 보드 (순서 중심, 시간·알람·제한 없음)
 const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
   settings: (s => (s.radius === 100 ? { ...s, radius: 50 } : s))({ ...DEFAULTS, ...store.get('tg.settings', {}) }), // 예전 기본값 100m → 50m
@@ -446,7 +447,7 @@ const quickNear = () => `<div class="quick-near">${Object.entries(NEAR_ME).map((
 
 function renderStatus() {
   const el = $('#status'), d = curDay();
-  if (!d || !d.items.length) { el.innerHTML = ''; el.hidden = true; return; }
+  if (boardMode() || !d || !d.items.length) { el.innerHTML = ''; el.hidden = true; return; }
   el.hidden = false;
   if (S.cur.sched.length !== d.items.length) recompute(); // 일정이 바뀐 직후면 다시 계산
   const { sched } = S.cur, items = d.items, now = Date.now();
@@ -1024,6 +1025,11 @@ function setupTrayDrag(tray) {
     const fav = S.favs.find(f => f.id === card.dataset.fid);
     press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
       press = null;
+      if (boardMode()) {
+        try { card.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
+        bdStart({ kind: 'wish', fav, from: card, card, x: e.clientX, y: e.clientY });
+        return;
+      }
       const ghost = card.cloneNode(true);
       ghost.classList.add('bub-ghost'); ghost.classList.remove('used');
       const tip = document.createElement('em');
@@ -1262,6 +1268,13 @@ function dayNotesHtml(d) {
 function renderTimeline() {
   const el = $('#timeline'), d = curDay(), date = S.selected;
   if (!date) { el.innerHTML = ''; return; }
+  if (S.bd && !S.bd.switching) return; // 버블을 끄는 중엔 다시 그리지 않음 (끄는 버블이 사라지지 않게)
+  if (boardMode()) {
+    const qa = $('#qaIn'), keep = qa && { v: qa.value, f: document.activeElement === qa };
+    el.innerHTML = boardHtml(d, date);
+    if (keep && $('#qaIn')) { $('#qaIn').value = keep.v; if (keep.f) $('#qaIn').focus(); }
+    return;
+  }
   if (!d || !d.items.length) {
     const [, mm, dd] = date.split('-').map(Number);
     el.innerHTML = `<div class="empty">${quickNear()}
@@ -1284,10 +1297,8 @@ function renderTimeline() {
   const busy = k => [d.items[k], d.items[k + 1]].some(x => x && (isFlight(x.place) || AIRPORT_RE.test(x.place)));
   const passed = g => nowM >= 0 && (g.we != null ? nowM > g.we : nowM > (S.cur.sched[g.k]?.depart ?? 1e9));
   if (d.date >= todayStr()) for (const g of [...mealGaps(d), ...extraGaps(d)]) if (!busy(g.k) && !passed(g)) (gaps[g.k] ||= []).push(g);
-  const simple = !S.settings.detailList;
   const rows = d.items.map((it, i) => {
     const s = sched[i], state = states[i], done = state === 'done' || state === 'skip', color = placeColor(i, state);
-    if (simple) return simpleRowHtml(d, i, state, color) + gapsHtml(gaps[i], i);
     let leg = '';
     if (i > 0) {
       const l = legs[i], m = MODES[it.mode];
@@ -1324,10 +1335,8 @@ function renderTimeline() {
   }).join('');
   const doneCount = states.filter(s => s === 'done' || s === 'skip').length;
   const qa = $('#qaIn'), qaKeep = qa && { v: qa.value, f: document.activeElement === qa }; // 적는 중에 화면이 새로 그려져도 글자 유지
-  el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows ${simple ? 'simple' : ''}">${rows}</div>
-    ${S.quickAdd ? `<div class="quick-add"><input id="qaIn" placeholder="장소 이름만 적고 추가" enterkeyhint="done" autocomplete="off"><button data-act="qaSave">추가</button></div>
-      <div class="qa-more muted small"><span>자세한 건 추가한 뒤 눌러서 정해요</span><span><button data-act="qaSearch">🔎 검색해서 넣기</button><button data-act="qaClose">닫기</button></span></div>`
-      : `<button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>`}
+  el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows">${rows}</div>
+    ${addAreaHtml(n)}
     ${dayNotesHtml(d)}`;
   if (qaKeep && $('#qaIn')) { $('#qaIn').value = qaKeep.v; if (qaKeep.f) $('#qaIn').focus(); }
 }
@@ -1340,26 +1349,228 @@ function qaSave() {
   $('#qaIn')?.focus();
 }
 
+// 시간표 맨 아래: [＋ 장소 추가] 또는 장소 이름만 적는 칸
+const addAreaHtml = n => (S.quickAdd ? `<div class="quick-add"><input id="qaIn" placeholder="장소 이름만 적고 추가" enterkeyhint="done" autocomplete="off"><button data-act="qaSave">추가</button></div>
+      <div class="qa-more muted small"><span>자세한 건 추가한 뒤 눌러서 정해요</span><span><button data-act="qaSearch">🔎 검색해서 넣기</button><button data-act="qaClose">닫기</button></span></div>`
+  : `<button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>`);
+
+// ---------- 🫧 버블 보드: 오전·오후만 나눈 판 위에 순서대로 버블. 오늘은 지금·내 위치 기준으로 앞으로 갈 곳만 ----------
+const BOARD_SEC = { am: '오전 AM', pm: '오후 PM', late: '새벽 (다음 날)' };
+function boardHtml(d, date) {
+  const items = d?.items || [], n = items.length, sched = S.cur.sched;
+  const ph = n && isLive() ? phase(d) : null;
+  const states = items.map((_, i) => itemState(d, i, ph));
+  const today = date === todayStr();
+  const past = today ? states.flatMap((st, i) => (st === 'done' || st === 'skip' ? [i] : [])) : [];
+  const showPast = S.showPast === date;
+  let top = '';
+  if (today && n) {
+    const hi = states.indexOf('here'), ni = states.indexOf('next');
+    const where = hi >= 0 ? `${esc(items[hi].place)}에 있어요` : ni >= 0 ? `다음은 ${esc(items[ni].place)}` : past.length === n ? '오늘 일정 끝' : '내 위치에서 출발';
+    top = `<div class="now-bub">📍 지금 <b>${fmtClock(nowMinOf(date))}</b><span>${where}</span></div>`;
+  }
+  if (past.length) top += `<button class="past-fold" data-act="showPast">${showPast ? '︿ 지난 곳 접기' : `✓ 지난 곳 ${past.length}곳 보기`}</button>`;
+  let sec = '';
+  const slots = items.map((it, i) => {
+    const st = states[i], done = st === 'done' || st === 'skip';
+    if (past.includes(i) && !showPast) return '';
+    const s = sched[i], t = s?.arrive ?? s?.depart;
+    const sc = t == null ? sec || 'am' : t >= 1440 ? 'late' : t >= 720 ? 'pm' : 'am';
+    const label = sc !== sec ? `<div class="ampm">${BOARD_SEC[sc]}</div>` : '';
+    sec = sc;
+    const tag = st === 'here' ? '<span class="b-tag now">지금</span>' : st === 'next' ? '<span class="b-tag next">다음</span>' : '';
+    return `<div class="bslot" data-i="${i}">${label}<div class="bubble ${st}" data-act="bubTap" data-i="${i}" style="--c:${placeColor(i, st)}">
+      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
+  }).join('');
+  const body = n ? slots : '<div class="board-empty">아래 <b>＋</b>로 적거나, ☆ <b>가볼 곳</b> 버블을 꾹 눌러 여기로 끌어 오세요</div>';
+  return `<div class="board-head"><b>${dayLabel(date)}</b><span class="muted small">${n ? `${n}곳 · 꾹 눌러 끌면 순서 바꾸기` : ''}</span></div>
+    ${top}<div class="board">${body}</div>${addAreaHtml(n)}`;
+}
+
+// 버블 끌기 (보드 위 버블·가볼 곳 버블 공통): 꾹 눌러 들면 다른 버블이 밀려나며 들어갈 자리를 비워 줌.
+// 날짜 탭에 잠깐 대면 그 날로 넘어가고, 🗑에 놓으면 지우기
+S.bd = null;
+const BD_GAP = 10;
+function bdCollect() {
+  return { slots: [...document.querySelectorAll('#timeline .bslot')].map(el => ({ el, i: +el.dataset.i, r: el.getBoundingClientRect() })), scroll0: $('#listView').scrollTop };
+}
+function bdStart(o) { // o: { kind: 'item' | 'wish', i, fav, from(누른 버블), card(가볼 곳 버블), x, y }
+  const c = bdCollect();
+  const me = o.kind === 'item' ? c.slots.find(x => x.i === o.i) : null;
+  const H = (me ? me.el.querySelector('.bubble').offsetHeight : (c.slots[0]?.el.querySelector('.bubble').offsetHeight || 52)) + BD_GAP;
+  const ghost = document.createElement('div');
+  ghost.className = 'bubble bub-ghost';
+  ghost.innerHTML = o.from.innerHTML;
+  ghost.style.setProperty('--c', o.from.style.getPropertyValue('--c') || 'var(--accent)');
+  const tip = document.createElement('em');
+  tip.className = 'gh-tip';
+  ghost.append(tip);
+  document.body.append(ghost);
+  S.bd = { ...o, srcDate: S.selected, ...c, me, H, ghost, tip, w: ghost.offsetWidth, h: ghost.offsetHeight, target: null, spring: null };
+  me?.el.classList.add('lifted');
+  o.card?.classList.add('lifted');
+  $('#dragTrash')?.classList.add('show');
+  $('#favTray')?.classList.add('folded'); // 서랍은 접어서 보드 전체를 놓을 자리로
+  navigator.vibrate?.(30);
+  bdMove(o.x, o.y);
+  S.bd.raf = requestAnimationFrame(bdScroll);
+}
+const bdRest = g => g.slots.filter(x => x !== g.me);
+// 손가락 높이 → 몇 번째 자리 (보이는 버블 기준)
+function bdIndex(g, y) {
+  const dS = $('#listView').scrollTop - g.scroll0, rest = bdRest(g);
+  for (let k = 0; k < rest.length; k++) {
+    const x = rest[k], top = x.r.top - dS - (g.me && x.i > g.me.i ? g.H : 0);
+    if (y < top + x.r.height / 2) return k;
+  }
+  return rest.length;
+}
+// 들어갈 자리 아래 버블은 내려가고, 든 버블 자리는 위로 메워짐
+function bdShift(g, k) {
+  for (const [j, x] of bdRest(g).entries()) {
+    const dy = k == null ? 0 : (g.me && x.i > g.me.i ? -g.H : 0) + (j >= k ? g.H : 0);
+    x.el.style.transform = dy ? `translateY(${dy}px)` : '';
+  }
+  $('#timeline .board')?.classList.toggle('drop-in', k != null && !bdRest(g).length);
+}
+function bdMove(x, y) {
+  const g = S.bd;
+  if (!g) return;
+  g.x = x; g.y = y;
+  g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 30}px)`;
+  document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
+  const trash = $('#dragTrash'), tb = trash?.getBoundingClientRect();
+  const overTrash = !!tb && x >= tb.left - 20 && x <= tb.right + 20 && y >= tb.top - 20 && y <= tb.bottom + 20;
+  trash?.classList.toggle('hot', overTrash);
+  let t = null;
+  if (overTrash) t = { trash: true };
+  else {
+    const tab = document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date]'));
+    if (tab) { t = { date: tab.dataset.date }; tab.classList.add('drop-tab'); }
+    else if (topLayer() === 'list') {
+      const lv = $('#listView').getBoundingClientRect(), trayTop = $('#favTray')?.getBoundingClientRect().top ?? innerHeight;
+      if (y > lv.top && y < Math.min(lv.bottom, trayTop)) {
+        let k = bdIndex(g, y);
+        const first = bdRest(g)[0], d = curDay();
+        if (k === 0 && first && d?.items[first.i]?.auto && !(g.kind === 'item' && g.srcDate === S.selected && d.items[g.i]?.auto)) k = 1; // 출발지(숙소) 앞에는 못 넣음
+        t = { index: k };
+      }
+    }
+  }
+  // 날짜 탭에 0.45초 대고 있으면 그 날 보드로 (손가락은 그대로 끌면서 자리 고르기)
+  if (t?.date && t.date !== S.selected) {
+    if (g.spring?.date !== t.date) { clearTimeout(g.spring?.timer); const date = t.date; g.spring = { date, timer: setTimeout(() => bdSwitchDay(date), 450) }; }
+  } else if (g.spring) { clearTimeout(g.spring.timer); g.spring = null; }
+  g.target = t;
+  bdShift(g, t?.index ?? null);
+  g.tip.textContent = !t ? '여기엔 못 놓아요'
+    : t.trash ? (g.kind === 'item' ? '놓으면 일정에서 지우기' : '놓으면 가볼 곳에서 빼기')
+    : t.date ? (t.date === S.selected ? `${dayLabel(t.date)}에 넣기` : `${dayLabel(t.date)}로 넘어가는 중…`)
+    : `${t.index + 1}번째로`;
+}
+function bdSwitchDay(date) {
+  const g = S.bd;
+  if (!g) return;
+  g.spring = null;
+  // 누르고 있는 버블이 다시 그려지며 사라지면 손가락 움직임을 못 받으니, 안 보이는 곳에 옮겨 둠
+  if (g.from && $('#timeline').contains(g.from)) { g.holder = document.createElement('div'); g.holder.hidden = true; g.holder.append(g.from); document.body.append(g.holder); }
+  g.switching = true;
+  selectDay(date, true);
+  g.switching = false;
+  navigator.vibrate?.(15);
+  Object.assign(g, bdCollect());
+  g.me = g.kind === 'item' && g.srcDate === S.selected ? g.slots.find(x => x.i === g.i) : null;
+  g.me?.el.classList.add('lifted');
+  bdMove(g.x, g.y);
+}
+function bdScroll() {
+  const g = S.bd;
+  if (!g) return;
+  const sc = $('#listView'), r = sc.getBoundingClientRect(), bottom = Math.min(r.bottom, $('#favTray')?.getBoundingClientRect().top ?? innerHeight);
+  if (g.y > r.top && g.y < r.top + 56) { sc.scrollBy(0, -8); bdMove(g.x, g.y); }
+  else if (g.y > bottom - 56 && g.y < bottom) { sc.scrollBy(0, 8); bdMove(g.x, g.y); }
+  g.raf = requestAnimationFrame(bdScroll);
+}
+// 보이는 자리(k번째) → 그 날 일정 목록에서 실제로 들어갈 자리 (옮기는 일정은 뺀 목록 기준)
+function bdItemIndex(g, k, list) {
+  const d = curDay(), rest = bdRest(g);
+  if (!d || !rest.length) return list.length;
+  if (k < rest.length) return Math.max(0, list.indexOf(d.items[rest[k].i]));
+  return list.indexOf(d.items[rest.at(-1).i]) + 1;
+}
+function bdEnd(cancel) {
+  const g = S.bd;
+  if (!g) return;
+  S.bd = null;
+  clearTimeout(g.spring?.timer); cancelAnimationFrame(g.raf);
+  g.ghost.remove(); g.holder?.remove(); g.card?.classList.remove('lifted');
+  document.querySelectorAll('#dayTabs .drop-tab').forEach(e => e.classList.remove('drop-tab'));
+  $('#dragTrash')?.classList.remove('show', 'hot');
+  $('#favTray')?.classList.remove('folded');
+  S.dragJustEnded = Date.now();
+  const t = cancel ? null : g.target;
+  const reset = () => { bdShift(g, null); g.me?.el.classList.remove('lifted'); };
+  if (!t || (t.date && t.date === g.srcDate && g.kind === 'item')) { reset(); return; }
+  const keepStart = (list, at) => (at === 0 && list[0]?.auto ? 1 : at); // 자동으로 넣은 출발지(숙소) 앞에는 넣지 않음
+  if (g.kind === 'wish') {
+    reset();
+    if (t.trash) removeWish(g.fav);
+    else if (t.date) placeNew(t.date, null, g.fav);
+    else { const list = curDay()?.items || []; placeNew(S.selected, keepStart(list, bdItemIndex(g, t.index, list)), g.fav); }
+    return;
+  }
+  const from = S.plan.days.find(x => x.date === g.srcDate), it = from?.items[g.i];
+  if (!it) { reset(); return; }
+  if (t.trash) { reset(); trashItem(from, g.i); return; }
+  if (t.date) { reset(); moveItemToDay(g.srcDate, it.id, t.date); return; }
+  const to = ensureDay(S.selected), list = to.items.filter(x => x !== it), at = it.auto ? bdItemIndex(g, t.index, list) : keepStart(list, bdItemIndex(g, t.index, list));
+  list.splice(at, 0, it);
+  if (to === from && list.every((x, k) => x === from.items[k])) { reset(); return; } // 제자리
+  if (to !== from) {
+    from.items = from.items.filter(x => x !== it);
+    delete progOf(g.srcDate)[it.id];
+    if (!from.items.length) S.plan.days = S.plan.days.filter(x => x !== from);
+  }
+  to.items = list;
+  savePlan(); saveProgress(); recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
+  const b = $(`#timeline .bslot[data-i="${at}"] .bubble`);
+  if (b) { b.classList.add('flash'); b.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  toast(to === from ? `${it.place} → ${at + 1}번째` : `${it.place} → ${dayLabel(to.date)} ${at + 1}번째`);
+}
+function setupBoardDrag() {
+  const tl = $('#timeline');
+  let press = null;
+  tl.addEventListener('pointerdown', e => {
+    const b = e.target.closest('.bslot .bubble');
+    if (!b || S.bd || e.target.closest('button')) return;
+    const i = +b.closest('.bslot').dataset.i, id = e.pointerId;
+    press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      press = null;
+      try { b.setPointerCapture(id); } catch { /* 일부 브라우저 */ }
+      bdStart({ kind: 'item', i, from: b, x: e.clientX, y: e.clientY });
+    }, 350) };
+  });
+  tl.addEventListener('pointermove', e => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; } });
+  const stop = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  tl.addEventListener('pointerup', stop);
+  tl.addEventListener('pointercancel', stop);
+  tl.addEventListener('contextmenu', e => { if (S.bd || press) e.preventDefault(); });
+  // 끄는 중의 움직임·놓기는 화면 어디서든 (날짜가 바뀌어 보드가 다시 그려져도)
+  window.addEventListener('pointermove', e => { if (S.bd) bdMove(e.clientX, e.clientY); });
+  window.addEventListener('pointerup', () => bdEnd());
+  window.addEventListener('pointercancel', () => bdEnd(true));
+  window.addEventListener('touchmove', e => { if (S.bd && e.cancelable) e.preventDefault(); }, { passive: false });
+}
+function removeWish(fav) {
+  S.favs = S.favs.filter(f => f !== fav); saveFavs(); renderTray();
+  toast(`🗑 ${fav.place} 가볼 곳에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(fav); saveFavs(); rerenderKeep(); } });
+}
+
 // 식사·여유 시간 추천 칸 (점선)
 const gapsHtml = (list, i) => (list || []).map(g => `<div class="suggest-slot ${g.icon ? g.type : ''}" data-act="suggest" data-type="${g.type}" data-k="${i}">
       ${g.icon ? `<span>${g.icon} ${g.label} <span class="muted">· ${g.text}</span></span>`
         : `<span>🍽 ${g.label} 추가 <span class="muted">· ${fmtClock(g.center)} 무렵 · 근처 맛집 추천</span></span>`}
       <button class="suggest-x" data-act="suggestSkip" data-type="${g.skip || g.type}" aria-label="숨기기">✕</button></div>`).join('');
-
-// 간단히 보기 한 줄: 정한 이름 + 위치(주소)만. 지금/다음 표시와 꼭 필요한 경고(늦음·위치 없음)만 남김
-function simpleRowHtml(d, i, state, color) {
-  const it = d.items[i], s = S.cur.sched[i], done = state === 'done' || state === 'skip';
-  const tag = state === 'here' ? '<span class="row-tag now">지금</span>' : state === 'next' ? '<span class="row-tag next">다음</span>' : '';
-  const warn = `${s?.late > 0 && !done ? `<span class="late-tag">⚠ ${fmtDur(s.late)} 늦음</span> ` : ''}${hasPos(it) ? '' : '<button class="bad" data-act="fixPlace" data-i="' + i + '">⚠ 위치 없음 · 눌러서 찾기</button>'}`;
-  const where = it.address ? `📍 ${esc(it.address)}` : '';
-  return `<div class="row simple ${state}" data-act="openDetail" data-i="${i}" style="--c:${color}">
-      <div class="row-main">
-        <div class="row-name">${esc(it.place)}${tag}${it.files?.length ? `<button class="clip" data-act="files" data-i="${i}" aria-label="첨부 파일 보기">📎${it.files.length > 1 ? `<small>${it.files.length}</small>` : ''}</button>` : ''}</div>
-        ${warn || where ? `<div class="row-sub">${warn}${where}</div>` : ''}
-      </div>
-      <span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span>
-    </div>`;
-}
 
 // ---------- 길게 누르면 간략 정보 창 (누른 채 끌면 순서 바꾸기로 이어짐) ----------
 function peekHtml(d, i) {
@@ -1372,8 +1583,8 @@ function peekHtml(d, i) {
   if (s.proc) lines.push(line('✈️', `${fmtClock(s.arrive)} 착륙 · 입국 절차 약 ${fmtDur(s.proc)}`));
   else if (first) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`));
   else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤까지` : ''}`));
-  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
-  if (s.late > 0 && !done) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
+  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
+  if (s.late > 0 && !done && !boardMode()) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
   if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
   lines.push(line('📍', it.address ? esc(it.address) : hasPos(it) ? '<span class="muted">지도 위치 있음</span>' : '<span class="late-tag">위치 없음</span>'));
   if (it.memo) lines.push(line('📝', `<span class="pk-memo">${esc(it.memo)}</span>`));
@@ -1381,10 +1592,11 @@ function peekHtml(d, i) {
   return `<div class="pk-card" data-act="peekOpen" data-i="${i}" style="--c:${placeColor(i, state)}">
       <div class="pk-top"><span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b></div>
       <div class="pk-lines">${lines.join('')}</div>
-      <div class="pk-hint">눌러서 자세히 보기 · 누른 채로 끌면 순서 바꾸기</div>
+      ${boardMode() ? `<div class="pk-acts"><button data-act="nav" data-i="${i}">🧭 길찾기</button><button data-act="peekOpen" data-i="${i}">✏️ 자세히</button>${done ? '' : `<button data-act="peekDone" data-i="${i}">✓ 다녀옴</button>`}</div>`
+        : '<div class="pk-hint">눌러서 자세히 보기 · 누른 채로 끌면 순서 바꾸기</div>'}
     </div>`;
 }
-function openPeek(i, row) {
+function openPeek(i, row, ready) {
   const d = curDay();
   if (!d?.items[i]) return;
   closePeek();
@@ -1394,6 +1606,7 @@ function openPeek(i, row) {
   el.innerHTML = peekHtml(d, i);
   document.body.append(el);
   S.peek = { i, el };
+  if (ready) el.classList.add('ready');
   row.classList.add('peeked');
   // 누른 줄 자리에서 커지듯이: 줄 위쪽에 맞추되 화면 밖으로 안 나가게
   const card = el.firstElementChild, r = row.getBoundingClientRect(), h = card.offsetHeight;
@@ -1405,7 +1618,7 @@ function openPeek(i, row) {
 function closePeek() {
   if (!S.peek) return;
   S.peek.el.remove();
-  document.querySelectorAll('.row.peeked').forEach(r => r.classList.remove('peeked'));
+  document.querySelectorAll('.peeked').forEach(r => r.classList.remove('peeked'));
   S.peek = null;
 }
 
@@ -2167,6 +2380,7 @@ function keepStay(d, items, k) {
 // 예약에 늦게 되면 먼저 물어봄. 넣기로 하면 결과를 돌려줌, 취소하면 null
 function confirmChange(d, newItems) {
   const imp = previewChange(d, newItems);
+  if (boardMode()) return imp; // 버블 보드는 순서 중심이라 시간 제한으로 묻지 않음
   if (imp.late.length) {
     const lines = imp.late.map(x => `· ${x.it.place} (${fmtClock(x.it.time)})에 ${fmtDur(x.mins)} 늦어요`).join('\n');
     if (!confirm(`이렇게 하면 시간을 정해 둔 일정(예약 등)에 늦어요.\n\n${lines}\n\n그래도 진행할까요?`)) return null;
@@ -2178,6 +2392,7 @@ function confirmChange(d, newItems) {
 }
 
 function changeToast(imp, base) {
+  if (boardMode()) imp = null;
   const bits = [base];
   if (imp?.late.length) bits.push(`⚠ 정해 둔 시간에 ${imp.late.length}곳 늦어요 (목록에 표시)`);
   else if (imp?.shortened.length) bits.push(`정해 둔 시간을 지키려고 ${imp.shortened.map(x => `${x.it.place} ${fmtDur(x.mins)}`).join(', ')} 덜 머물러요`);
@@ -2943,7 +3158,7 @@ function settingsHtml() {
     <label class="field">도착으로 인정할 거리 (m)<input id="setRadius" type="number" min="20" max="1000" value="${s.radius}"></label>
     <label class="field">출발 몇 분 전에 미리 알림 (0이면 끔)<input id="setLead" type="number" min="0" max="120" value="${s.lead}"></label>
     <label class="field">예약 시간 전 여유 (분)<input id="setBuffer" type="number" min="0" max="60" value="${s.buffer}"></label>
-    <label class="check"><input id="setDetail" type="checkbox" ${s.detailList ? 'checked' : ''}> 시간표를 자세히 보기 (끄면 이름·위치만 간단히, 길게 누르면 간략 정보)</label>
+    <label class="check"><input id="setDetail" type="checkbox" ${s.detailList ? 'checked' : ''}> 예전 시간표 화면 쓰기 (시간·출발 알람·추천 칸 포함. 끄면 버블 보드)</label>
     <label class="check"><input id="setSim" type="checkbox" ${s.sim ? 'checked' : ''}> 테스트 모드: 선택한 날을 오늘로 보고, 지도를 누른 곳을 내 위치로 사용</label>
     <div class="st-actions"><button class="primary" data-act="saveSettings">저장</button></div>
     <hr>
@@ -3022,7 +3237,7 @@ let alarmTimer, alarmSig = '';
 function scheduleAlarms(force, extra = []) {
   clearTimeout(alarmTimer);
   alarmTimer = setTimeout(async () => {
-    const list = [...buildAlarms(), ...extra];
+    const list = boardMode() ? [] : [...buildAlarms(), ...extra]; // 버블 보드에선 알람 없음
     const sig = JSON.stringify(list.map(a => [a.id, a.at, a.body]));
     if (!force && sig === alarmSig) return;
     alarmSig = sig;
@@ -3540,6 +3755,9 @@ async function act(name, el) {
     case 'openDetail': openDetail(i, !!el.dataset.swap); break;
     case 'peekOpen': closePeek(); openDetail(i); break;
     case 'peekClose': closePeek(); break;
+    case 'bubTap': openPeek(i, el, true); break;
+    case 'peekDone': closePeek(); markDoneUpTo(d, i); break;
+    case 'showPast': S.showPast = S.showPast === S.selected ? null : S.selected; renderTimeline(); break;
     case 'detailMap': openMap(S.detail, 'bottom'); break;
     case 'cardToList': backToList(i); break;
     case 'guide': S.sheet = { type: 'guide' }; renderSheet(); break;
@@ -3612,7 +3830,7 @@ async function act(name, el) {
     }
     case 'pickDate': closeSheet(); selectDay(el.dataset.date, true); break;
     case 'goDay': selectDay(el.dataset.date, true); break;
-    case 'addPlace': if (d?.items.length) { S.quickAdd = true; renderTimeline(); $('#qaIn')?.focus(); } else openEditor(i); break;
+    case 'addPlace': if (d?.items.length || boardMode()) { S.quickAdd = true; renderTimeline(); $('#qaIn')?.focus(); } else openEditor(i); break;
     case 'qaSave': qaSave(); break;
     case 'qaClose': S.quickAdd = false; renderTimeline(); break;
     case 'qaSearch': { const q = $('#qaIn')?.value.trim(); S.quickAdd = false; openEditor(d?.items.length || 0); if (q && S.sheet?.type === 'edit') { S.sheet.query = q; renderSheet(); } break; }
@@ -3853,7 +4071,7 @@ function dragTracker(el, { onMove, onEnd, axis: want, holdY, skip }) {
   const begin = (x, y) => { st = skip?.() ? null : { x, y, t: Date.now(), axis: null, dx: 0, dy: 0 }; };
   const move = (x, y, e) => {
     if (!st) return;
-    if (S.drag || S.peek) { st = null; return; } // 일정 끌어서 옮기는 중·간략 창이 떠 있을 땐 화면 넘기기 안 함
+    if (S.drag || S.peek || S.bd) { st = null; return; } // 일정 끌어서 옮기는 중·간략 창이 떠 있을 땐 화면 넘기기 안 함
     st.dx = x - st.x; st.dy = y - st.y;
     if (!st.axis && Math.hypot(st.dx, st.dy) > 10) st.axis = Math.abs(st.dx) > Math.abs(st.dy) * 1.2 ? 'x' : 'y';
     if (st.axis === want) {
@@ -4066,6 +4284,7 @@ async function init() {
   setupWebBack();
   setupStatusFold();
   setupRowDrag();
+  setupBoardDrag();
   // 웹앱: 인터넷 없이도 열리게 화면 파일 저장 (안드로이드 앱은 파일이 이미 들어 있음)
   if (!isNative && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   // 인터넷이 다시 되면 못 받은 경로를 이어서 받음
