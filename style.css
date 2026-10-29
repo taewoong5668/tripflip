@@ -1,28 +1,28 @@
-/* 기본 테마: 크림 바탕 · 남색 글씨 · 회청색 줄 (오페라 하우스 티켓 느낌, 심플하고 깔끔하게) */
+/* 기본 테마: 깔끔한 흰 바탕 · 남색 글씨 · 옅은 회색 줄 */
 @font-face { font-family: "Arimo"; src: url(lib/fonts/arimo.woff2) format("woff2"); font-weight: 400 700; font-display: swap;
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215; }
 :root {
-  --bg: #f3efe6;
-  --card: #fbf9f4;
-  --card-2: #ebe6da;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --card-2: #f2f4f6;
   --text: #112233;
   --muted: #5b6b78;
-  --faint: #99aaaa;
-  --rule: #99aaaa;
-  --line: #d3d6ce;
+  --faint: #a3adb5;
+  --rule: #c5ccd3;
+  --line: #e3e7eb;
   --accent: #112233;
   --accent-2: #3a5470;
-  --accent-soft: #e2e0d8;
-  --on-accent: #f3efe6;
+  --accent-soft: #edf0f3;
+  --on-accent: #ffffff;
   --hero: #112233;
-  --on-hero: #f3efe6;
+  --on-hero: #ffffff;
   --ok: #2e7d5b;
   --ok-soft: #e0e9dd;
   --warn: #b0701a;
   --warn-soft: #f4e6cc;
   --danger: #c0392b;
   --danger-soft: #f5ddd6;
-  --shadow: 0 1px 2px rgba(17, 34, 51, .04), 0 4px 14px rgba(17, 34, 51, .05);
+  --shadow: 0 1px 3px rgba(17, 34, 51, .06), 0 6px 18px rgba(17, 34, 51, .07); /* 흰 바탕 위 흰 카드가 보이게 조금 진하게 */
   --radius: 16px;
 }
 @media (prefers-color-scheme: dark) {
@@ -670,6 +670,8 @@ body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
 .hm-dots i.on { background: var(--accent); }
 .hm-step { margin-top: 18px; color: var(--accent); font-weight: 800; font-size: 13px; }
 .hm-sub { margin: 0 0 22px; color: var(--muted); font-size: 15px; }
+.hm-tname-row { margin-top: 14px; }
+.hm-tname { padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card-2); color: var(--text); font-size: 14px; font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 정한 여행 이름 (누르면 고치기) */
 .hm-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hm-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 30px 12px 26px; border: 2px solid transparent; border-radius: 22px;
   background: var(--card); box-shadow: var(--shadow); transition: transform .15s, border-color .15s; }

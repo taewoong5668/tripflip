@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291823';
-import { arrivalGuide } from './guides.js?v=202610291823';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291831';
+import { arrivalGuide } from './guides.js?v=202610291831';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291823';
-import { createMap } from './map.js?v=202610291823';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291823';
-import { PROXY_URL } from './config.js?v=202610291823';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291823';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291823';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291823';
-import { tzOf } from './tz.js?v=202610291823';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291823';
-import { findCodes, codeName } from './codes.js?v=202610291823';
+} from './schedule.js?v=202610291831';
+import { createMap } from './map.js?v=202610291831';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291831';
+import { PROXY_URL } from './config.js?v=202610291831';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291831';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291831';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291831';
+import { tzOf } from './tz.js?v=202610291831';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291831';
+import { findCodes, codeName } from './codes.js?v=202610291831';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2471,7 +2471,7 @@ function renderSheet() {
     el.innerHTML = `<div class="pick-bar"><b>지도를 눌러 ${S.pickTarget === 'origin' ? '출발지를' : '위치를'} 고르세요</b><button data-act="pickCancel">취소</button></div>`;
     return;
   }
-  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml }[sh.type](sh);
+  el.innerHTML = { settings: settingsHtml, edit: editHtml, cal: calendarHtml, exit: exitHtml, wake: wakeHtml, poi: poiHtml, suggest: suggestHtml, guide: guideHtml, near: nearHtml, invite: inviteHtml, prog: progHtml, keep: keepHtml, bubble: bubbleHtml, reset: resetHtml, tripName: tripNameHtml }[sh.type](sh);
   if (sh.type === 'keep') fillMemPhotos();
 }
 
@@ -3406,6 +3406,26 @@ function homeKind(h) {
     ${old && !h.fromDone ? '<button class="hm-link" data-act="hmView">지난 일정 보기</button>' : ''}`;
 }
 
+// 여행 이름 정하기: 처음 화면(국내·해외 고른 바로 다음)과 설정의 "여행 이름 바꾸기"에서
+function openTripName(from) {
+  S.sheet = { type: 'tripName', from, value: from === 'home' ? S.home?.title || '' : S.plan.title || '' };
+  renderSheet();
+  setTimeout(() => { const t = $('#tripName'); t?.focus(); t?.select(); }, 300);
+}
+function tripNameHtml(sh) {
+  const home = sh.from === 'home', kind = { domestic: '🏞️ 국내 여행', abroad: '✈️ 해외 여행' }[home ? S.home?.kind : S.plan.trip?.kind] || '트립플립';
+  return `<div class="sheet-head"><div><div class="st-label">${kind}</div><b>✏️ 여행 이름 정하기</b></div><button class="x" data-act="closeSheet">✕</button></div>
+    <label class="field">여행 이름<input id="tripName" maxlength="30" autocomplete="off" enterkeyhint="done" value="${esc(sh.value)}" placeholder="${S.home?.kind === 'domestic' ? '예: 제주 가족여행' : '예: 시드니 신혼여행'}"></label>
+    <div class="st-actions"><button class="primary" data-act="tripNameOk">${home ? '정하기' : '바꾸기'}</button><button data-act="closeSheet">${home ? '나중에 정하기' : '취소'}</button></div>`;
+}
+function tripNameOk() {
+  const sh = S.sheet, v = ($('#tripName')?.value || '').trim().slice(0, 30);
+  if (!v) { $('#tripName')?.focus(); toast('여행 이름을 적어 주세요'); return; }
+  if (sh.from === 'home' && S.home) { S.home.title = v; closeSheet(); renderHome(); paintRange(); } // 날짜를 고르면 이 이름으로 여행이 만들어짐
+  else { S.plan.title = v; S.plan.named = true; savePlan(); closeSheet(); renderAll(false); }
+  toast(`✏️ 여행 이름: ${v}`);
+}
+
 function homeDates(h) {
   const t = todayStr();
   h.month ||= { y: +(h.start || t).slice(0, 4), m: +(h.start || t).slice(5, 7) };
@@ -3413,7 +3433,7 @@ function homeDates(h) {
   const cells = monthCells(y, m).map(date => date
     ? `<div class="hm-day ${date < t ? 'past' : ''} ${date === t ? 'today' : ''} ${new Date(dayStart(date)).getDay() === 0 ? 'sun' : ''}" data-date="${date}">${+date.slice(8)}</div>`
     : '<div></div>').join('');
-  return `${homeTop(h)}<h1>언제 떠나세요?</h1><p class="hm-sub">출발일을 누른 채 마지막 날까지 끌어 주세요<br><span class="muted small">(출발일 → 마지막 날 차례로 눌러도 돼요)</span></p>
+  return `${homeTop(h)}<div class="hm-tname-row"><button class="hm-tname" data-act="hmName">${h.title ? `✏️ ${esc(h.title)}` : '✏️ 여행 이름 정하기'}</button></div><h1>언제 떠나세요?</h1><p class="hm-sub">출발일을 누른 채 마지막 날까지 끌어 주세요<br><span class="muted small">(차례로 눌러도 돼요 · 다음 달로 이어지면 끄는 채로 › 에 잠깐 대거나, › 로 넘겨서 마지막 날 누르기)</span></p>
     <div class="hm-cal">
       <div class="hm-month"><button class="icon-btn" data-act="hmMonth" data-d="-1" aria-label="이전 달"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
         <b>${y}년 ${m}월</b>
@@ -3425,6 +3445,11 @@ function homeDates(h) {
     <button class="hm-next primary" id="hmNext" data-act="hmDates">다음</button>`;
 }
 
+function flipMonth(d) {
+  const h = S.home, mm = h.month.y * 12 + h.month.m - 1 + d;
+  h.month = { y: Math.floor(mm / 12), m: mm % 12 + 1 };
+  renderHome(); paintRange();
+}
 // 끄는 동안에는 화면을 다시 그리지 않고 칸 색만 바꿈 (손가락을 놓치지 않게)
 function paintRange() {
   const h = S.home;
@@ -3451,17 +3476,26 @@ function setupHome() {
     if (!date || S.home?.step !== 'dates') return;
     e.preventDefault();
     const h = S.home, single = h.start && h.start === h.end;
-    drag = { anchor: date, moved: false, prev: single ? h.start : null };
-    setRange(date, date);
+    // › 로 다음 달로 넘긴 뒤 골라 둔 기간보다 뒤 날을 누르면 이어 붙임 (10/30~10/31 → 다음 달 11/3까지). 그 밖이거나 너무 먼 날이면 새로 고르기
+    const keep = h.cont > 0 && h.start && date > h.end && daysBetween(h.start, date) <= 60 ? h.start : null;
+    h.cont = 0;
+    drag = { anchor: keep || date, moved: !!keep, prev: !keep && single ? h.start : null };
+    try { el.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ } // 달이 바뀌어 칸이 다시 그려져도 손가락을 놓치지 않게
+    setRange(drag.anchor, date);
   });
   el.addEventListener('pointermove', e => {
     if (!drag) return;
     const date = dayAt(e.clientX, e.clientY);
     if (date && (date !== drag.anchor || drag.moved)) { drag.moved = true; setRange(drag.anchor, date); }
+    // 끄는 채로 ‹ › 에 잠깐 대고 있으면 그 달로 넘어감 (계속 대고 있으면 한 달씩 더)
+    const arrow = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-act="hmMonth"]');
+    if (arrow && !drag.flip) drag.flip = setTimeout(() => { if (drag) { drag.flip = null; drag.moved = true; flipMonth(+arrow.dataset.d); } }, 550);
+    else if (!arrow && drag.flip) { clearTimeout(drag.flip); drag.flip = null; }
   });
   const end = () => {
     // 끌지 않고 톡 눌렀으면: 먼저 하루만 골라 둔 상태에서 다른 날을 누르면 그 사이 전체
     if (drag && !drag.moved && drag.prev && drag.prev !== drag.anchor) setRange(drag.prev, drag.anchor);
+    clearTimeout(drag?.flip);
     drag = null;
   };
   el.addEventListener('pointerup', end);
@@ -3500,9 +3534,9 @@ function homeDone() {
 }
 
 // 새 여행 시작: 지난 여행의 다녀온 곳은 추억으로 남기고 일정·진행 기록은 비움
-function startTrip(kind, start, end) {
+function startTrip(kind, start, end, title) {
   syncMemories();
-  S.plan = { title: kind === 'abroad' ? '해외 여행' : '국내 여행', days: [], trip: { kind, start, end } };
+  S.plan = { title: title || (kind === 'abroad' ? '해외 여행' : '국내 여행'), named: !!title, days: [], trip: { kind, start, end } };
   S.progress = {};
   savePlan(); saveProgress();
   scheduleAlarms(true);
@@ -3569,6 +3603,7 @@ function loadPlan(plan) {
   // 여행 기간은 엑셀에 적힌 날짜대로 (국내·해외는 처음 화면에서 고른 그대로)
   const dates = plan.days.map(d => d.date).sort();
   if (dates.length) plan.trip = { kind: S.plan.trip?.kind || null, start: dates[0], end: dates[dates.length - 1] };
+  if (S.plan.named && !S.plan.days.some(d => d.items.length)) { plan.title = S.plan.title; plan.named = true; } // 처음 화면에서 정한 이름은 그대로
   S.plan = plan; savePlan();
   S.progress = progress; saveProgress();
   const places = plan.days.reduce((n, d) => n + d.items.length, 0);
@@ -3870,11 +3905,7 @@ async function act(name, el) {
   const d = curDay(), i = +el.dataset.i;
   switch (name) {
     case 'load': $('#fileInput').click(); break;
-    case 'rename': {
-      const t = prompt('여행 이름', S.plan.title || '');
-      if (t != null && t.trim()) { S.plan.title = t.trim(); savePlan(); renderAll(false); }
-      break;
-    }
+    case 'rename': openTripName('settings'); break;
     case 'calendar': S.calMonth = null; S.sheet = { type: 'cal' }; renderSheet(); break;
     case 'settings': S.sheet = { type: 'settings' }; renderSheet(); break;
     case 'toggleView': if (topLayer() === 'map') popLayer(); else openMap(null); break;
@@ -4065,17 +4096,14 @@ async function act(name, el) {
     case 'progSheet': S.sheet = { type: 'prog' }; renderSheet(); break;
     case 'home': closeSheet(); openHome(); break;
     case 'hmBack': homeBack(); break;
-    case 'hmKind': S.home.kind = el.dataset.kind; S.home.step = 'dates'; renderHome(); paintRange(); break;
-    case 'hmMonth': {
-      const h = S.home, mm = h.month.y * 12 + h.month.m - 1 + +el.dataset.d;
-      h.month = { y: Math.floor(mm / 12), m: mm % 12 + 1 };
-      renderHome(); paintRange();
-      break;
-    }
+    case 'hmKind': S.home.kind = el.dataset.kind; S.home.step = 'dates'; renderHome(); paintRange(); openTripName('home'); break;
+    case 'hmName': openTripName('home'); break;
+    case 'tripNameOk': tripNameOk(); break;
+    case 'hmMonth': flipMonth(+el.dataset.d); S.home.cont = S.home.start ? +el.dataset.d : 0; break; // 넘긴 쪽으로 누르면 기간을 이어 붙임
     case 'hmDates': {
       const h = S.home;
       if (!h.start) break;
-      startTrip(h.kind, h.start, h.end || h.start);
+      startTrip(h.kind, h.start, h.end || h.start, h.title);
       h.step = 'plan'; h.fromDone = false; renderHome();
       break;
     }
@@ -4181,6 +4209,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch('dest'); }
   if (e.key === 'Enter' && e.target.id === 'qaIn' && !e.isComposing) { e.preventDefault(); qaSave(); }
   if (e.key === 'Enter' && e.target.id === 'bubName' && !e.isComposing) { e.preventDefault(); makeBubble(); }
+  if (e.key === 'Enter' && e.target.id === 'tripName' && !e.isComposing) { e.preventDefault(); tripNameOk(); }
   if (e.key === 'Enter' && e.target.id === 'orQuery') { e.preventDefault(); edSearch('origin'); }
 });
 
