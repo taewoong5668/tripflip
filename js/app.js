@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291421';
-import { arrivalGuide } from './guides.js?v=202610291421';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610291432';
+import { arrivalGuide } from './guides.js?v=202610291432';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610291421';
-import { createMap } from './map.js?v=202610291421';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291421';
-import { PROXY_URL } from './config.js?v=202610291421';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291421';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291421';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup } from './keep.js?v=202610291421';
-import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291421';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291421';
-import { findCodes, codeName } from './codes.js?v=202610291421';
+} from './schedule.js?v=202610291432';
+import { createMap } from './map.js?v=202610291432';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610291432';
+import { PROXY_URL } from './config.js?v=202610291432';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610291432';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610291432';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610291432';
+import { tzOf, zonedMidnight, clockIn, deviceTz, tzLabel } from './tz.js?v=202610291432';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610291432';
+import { findCodes, codeName } from './codes.js?v=202610291432';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -692,7 +692,7 @@ function favBody(sh) {
   const cats = `<div class="chips fav-cats"><button class="chip-btn ${sh.cat === 'all' ? 'on' : ''}" data-act="favCat" data-cat="all">전체 ${S.favs.length}</button>${FAV_CATS.filter(c => counts[c.id]).map(c =>
     `<button class="chip-btn ${sh.cat === c.id ? 'on' : ''}" data-act="favCat" data-cat="${c.id}">${c.icon} ${c.label} ${counts[c.id]}</button>`).join('')}</div>`;
   const list = S.favs.filter(f => sh.cat === 'all' || f.cat === sh.cat)
-    .map(f => ({ f, d: c0 ? haversine(c0, f) : null })).sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
+    .map(f => ({ f, d: c0 && hasPos(f) ? haversine(c0, f) : null })).sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
   const card = ({ f, d }) => {
     const c = catOf(f.cat);
     return `<div class="fav-card">
@@ -703,15 +703,16 @@ function favBody(sh) {
   };
   // 가까운 곳(50km 안)과 다른 도시를 나눠서
   const isHere = x => x.d != null && x.d < 50000;
-  const here = list.filter(isHere), far = list.filter(x => !isHere(x));
+  const here = list.filter(isHere), far = list.filter(x => !isHere(x) && hasPos(x.f)), noPos = list.filter(x => !hasPos(x.f));
   const res = Array.isArray(sh.res)
     ? sh.res.map((r, j) => `<div class="fav-res"><div><b>${esc(r.name)}</b><div class="muted small">${esc(r.address || r.kind || '')}</div></div><button class="chip-btn ${favStar(r) === '★' ? 'on' : ''}" data-act="favResAdd" data-j="${j}">${favStar(r)} 저장</button></div>`).join('') || '<div class="muted small pad">찾지 못했어요. 영어 이름으로도 찾아보세요.</div>'
     : sh.res === 'loading' ? '<div class="muted small pad">찾는 중…</div>' : '';
   return `<div class="fav-search"><input id="favQ" placeholder="가고 싶은 곳 검색해서 저장" value="${esc(sh.q || '')}"><button class="chip-btn on" data-act="favSearch">찾기</button></div>${res}
     ${S.favs.length ? `${cats}
-      <button class="tray-open" data-act="favTray">🖐 시간표에 끌어다 놓기 <span class="muted small">· 꾹 눌러 끌어서 원하는 자리·날짜에</span></button>
+      <button class="tray-btn" data-act="favTray">📝 가볼 곳 창 열기 <span class="muted small">· 꾹 눌러 날짜·시간표에 끌어 놓기</span></button>
       ${here.length ? `<div class="fav-group">📍 이 근처</div>${here.map(card).join('')}` : ''}
-      ${far.length ? `${here.length ? '<div class="fav-group">🌏 다른 곳</div>' : ''}${far.map(card).join('')}` : ''}`
+      ${far.length ? `${here.length ? '<div class="fav-group">🌏 다른 곳</div>' : ''}${far.map(card).join('')}` : ''}
+      ${noPos.length ? `<div class="fav-group">📝 이름만 적어 둔 곳 <span class="muted small">· 일정에 넣으면 위치를 찾아요</span></div>${noPos.map(card).join('')}` : ''}`
     : '<div class="muted pad">아직 즐겨찾기가 없어요.<br>장소 상세 화면이나 추천 결과의 <b>☆</b>를 누르거나, 위에서 검색해서 저장하세요.</div>'}`;
 }
 
@@ -871,29 +872,96 @@ function closeMemMap() {
   S.memMap.map.remove(); S.memMap.el.remove(); S.memMap = null;
 }
 
-// ---------- 🖐 즐겨찾기 서랍: 꾹 눌러 끌어서 시간표 자리나 날짜 탭에 놓기 ----------
+// ---------- 📝 가볼 곳 서랍: 가고 싶은 곳을 마구 적으면 버블 버튼이 생김 → 꾹 눌러 날짜에 대면 그 날로, 시간표 자리에 놓으면 끝 ----------
 S.tray = null; // { cat }
 function toggleTray(on = !S.tray) {
   S.tray = on ? { cat: 'all' } : null;
   document.body.classList.toggle('tray-open', !!S.tray);
   renderTray();
+  if (on && !S.favs.length) setTimeout(() => $('#wishIn')?.focus(), 250);
 }
+const shortDate = date => `${+date.slice(5, 7)}/${+date.slice(8, 10)}`;
 function renderTray() {
   let el = $('#favTray');
   if (!S.tray) { el?.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'favTray'; document.body.append(el); setupTrayDrag(el); }
-  const c0 = areaCenter();
+  const typed = $('#wishIn')?.value || '';
+  // 이미 시간표에 넣은 곳은 흐리게 + 그 날짜 (뒤로 보냄)
+  const usedOn = {};
+  for (const d of [...S.plan.days].sort((a, b) => (a.date < b.date ? -1 : 1))) for (const it of d.items) usedOn[it.place.trim().toLowerCase()] ??= d.date;
   const list = S.favs.filter(f => S.tray.cat === 'all' || f.cat === S.tray.cat)
-    .sort((a, b) => (c0 ? haversine(c0, a) - haversine(c0, b) : 0));
+    .map(f => ({ f, on: usedOn[f.place.trim().toLowerCase()] }))
+    .sort((a, b) => (a.on ? 1 : 0) - (b.on ? 1 : 0));
   const used = new Set(S.favs.map(f => f.cat));
-  el.innerHTML = `<div class="ft-head"><b>⭐ 꾹 눌러 끌어서 시간표 자리나 위 날짜에 놓으세요</b><button class="x" data-act="favTray" aria-label="닫기">✕</button></div>
-    <div class="ft-cats"><button class="${S.tray.cat === 'all' ? 'on' : ''}" data-act="trayCat" data-cat="all">전체</button>${FAV_CATS.filter(c => used.has(c.id)).map(c => `<button class="${S.tray.cat === c.id ? 'on' : ''}" data-act="trayCat" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join('')}</div>
-    <div class="ft-list">${list.map(f => `<div class="ft-card" data-fid="${f.id}"><span>${catOf(f.cat).icon}</span><b>${esc(f.place)}</b>${c0 ? `<small>${fmtDist(haversine(c0, f))}</small>` : ''}</div>`).join('') || '<div class="muted small pad">즐겨찾기가 없어요. 위의 ⭐ 보관함에서 먼저 저장하세요.</div>'}</div>`;
+  el.innerHTML = `<div class="ft-head"><b>📝 가볼 곳 <span class="muted">${S.favs.length || ''}</span></b>
+      <span class="ft-tools"><button data-act="keep">⭐ 찾기·추억</button><button class="x" data-act="favTray" aria-label="닫기">✕</button></span></div>
+    <div class="ft-add"><textarea id="wishIn" rows="1" placeholder="가고 싶은 곳을 마구 적어 보세요 (여러 곳은 줄바꿈·쉼표로)">${esc(typed)}</textarea><button data-act="wishAdd">추가</button></div>
+    ${used.size > 1 ? `<div class="ft-cats"><button class="${S.tray.cat === 'all' ? 'on' : ''}" data-act="trayCat" data-cat="all">전체</button>${FAV_CATS.filter(c => used.has(c.id)).map(c => `<button class="${S.tray.cat === c.id ? 'on' : ''}" data-act="trayCat" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join('')}</div>` : ''}
+    <div class="ft-list">${list.map(({ f, on }) => `<div class="bub ${on ? 'used' : ''}" data-fid="${f.id}"><span class="bub-ic">${catOf(f.cat).icon}</span><b>${esc(f.place)}</b>${on ? `<small>✓ ${shortDate(on)}</small>` : ''}</div>`).join('')
+      || '<div class="muted small ft-empty">위에 가고 싶은 곳을 적고 <b>추가</b>를 누르면 버튼이 생겨요</div>'}</div>
+    ${list.length ? '<div class="ft-tip">버튼을 <b>꾹 눌러</b> 위 날짜에 대면 그 날로 넘어가요 → 원하는 자리에 놓으면 끝</div>' : ''}`;
+  fitWishBox();
+}
+// 적는 칸은 글이 늘면 4줄까지 커짐, 서랍 높이만큼 시간표 아래 여백
+function fitWishBox() {
+  const t = $('#wishIn'), el = $('#favTray');
+  if (t) { t.style.height = 'auto'; t.style.height = `${Math.min(t.scrollHeight, 100)}px`; }
+  if (el) document.body.style.setProperty('--tray-h', `${el.offsetHeight}px`);
+}
+function wishAdd() {
+  const t = $('#wishIn'), names = splitWishes(t?.value);
+  if (!names.length) { t?.focus(); toast('가고 싶은 곳 이름을 적어 주세요'); return; }
+  let added = 0;
+  for (const place of names) {
+    if (findFav(S.favs, { place })) continue; // 이미 있는 곳
+    S.favs.push({ id: newId(), place, address: '', lat: null, lng: null, cat: guessCat(place), added: Date.now() });
+    added++;
+  }
+  saveFavs();
+  t.value = '';
+  renderTray();
+  $('#wishIn')?.focus();
+  toast(added ? `📝 ${added}곳 추가 · 꾹 눌러 날짜에 끌어 놓으세요` : '이미 가볼 곳에 있어요');
+}
+
+// 새 일정 하나 넣기 (가볼 곳 끌어 놓기·장소만 적어 추가). index가 없으면 시간 순서에 맞는 자리(마지막이 숙소면 그 앞)
+// 위치를 모르면 이름으로 찾아 둠. 시간·메모 같은 자세한 건 나중에 눌러서
+function placeNew(date, index, base, quiet) {
+  const d = ensureDay(date);
+  const at = Math.min(index ?? insertIndexFor(d, { time: null }), d.items.length);
+  const item = { ...favDraft(base), id: newId(), mode: base.mode || d.items[at - 1]?.mode || 'TRANSIT', files: [] };
+  const items = [...d.items];
+  items.splice(at, 0, item);
+  const fitted = at > 0 ? keepStay(d, items, at - 1) : items;
+  const imp = d.items.length ? confirmChange(d, fitted) : null;
+  if (d.items.length && !imp) return null;
+  d.items = fitted;
+  savePlan();
+  if (date !== S.selected) selectDay(date, true);
+  recompute(); renderAll(false); prefetchLegs(); scheduleAlarms();
+  if (!hasPos(item)) geocodeMissing();
+  if (S.tray) renderTray();
+  const row = $(`#timeline .row[data-i="${at}"]`);
+  if (row) { row.classList.add('flash'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  if (!quiet) {
+    if (imp && (imp.late.length || imp.shifted.length || imp.shortened.length)) changeToast(imp, `✓ ${item.place} 넣었어요`);
+    else toast(`✓ ${item.place} 넣었어요 · 눌러서 시간·메모 정하기`, 4000, { label: '되돌리기', fn: () => undoPlace(date, item.id) });
+  }
+  return item;
+}
+function undoPlace(date, id) {
+  const d = S.plan.days.find(x => x.date === date);
+  if (!d) return;
+  d.items = d.items.filter(x => x.id !== id);
+  if (!d.items.length) S.plan.days = S.plan.days.filter(x => x !== d);
+  savePlan(); recompute(); renderAll(false); scheduleAlarms();
+  if (S.tray) renderTray();
 }
 
 function setupTrayDrag(tray) {
   let press = null, g = null, raf = 0;
-  const clearMarks = () => document.querySelectorAll('.row.drop-before, .row.drop-after, #dayTabs .drop-tab').forEach(e => e.classList.remove('drop-before', 'drop-after', 'drop-tab'));
+  const trash = $('#dragTrash');
+  const clearMarks = () => document.querySelectorAll('.row.drop-before, .row.drop-after, #dayTabs .drop-tab, .empty.drop-in').forEach(e => e.classList.remove('drop-before', 'drop-after', 'drop-tab', 'drop-in'));
   const scroller = $('#listView');
   // 위·아래 끝으로 끌면 시간표가 따라 스크롤
   const autoScroll = () => {
@@ -902,39 +970,70 @@ function setupTrayDrag(tray) {
     if (g.y > top && g.y < top + 60) scroller.scrollBy(0, -10); else if (g.y > bottom - 50 && g.y < bottom) scroller.scrollBy(0, 10);
     raf = requestAnimationFrame(autoScroll);
   };
-  // 놓을 곳: 위 날짜 탭(그 날) 또는 시간표 두 줄 사이(그 자리)
+  const overTrash = (x, y) => { const b = trash?.getBoundingClientRect(); return b && x >= b.left - 20 && x <= b.right + 20 && y >= b.top - 20 && y <= b.bottom + 20; };
+  // 놓을 곳: 휴지통, 위 날짜 탭(그 날), 시간표 두 줄 사이(그 자리), 빈 날(첫 일정)
   const findTarget = (x, y) => {
+    if (overTrash(x, y)) return { trash: true };
     const tab = document.elementsFromPoint(x, y).find(e => e.matches?.('#dayTabs [data-date]'));
     if (tab) return { date: tab.dataset.date, tab };
     if (y >= tray.getBoundingClientRect().top || topLayer() !== 'list') return null;
-    const tl = $('#timeline').getBoundingClientRect();
-    if (y < tl.top || y > tl.bottom) return null; // 시간표 밖(위 상태 카드 등)에 놓으면 취소
     const rows = [...document.querySelectorAll('#timeline .row[data-i]')];
-    if (!rows.length) return null;
+    if (!rows.length) {
+      const empty = $('#timeline .empty');
+      return empty && y > $('#listView').getBoundingClientRect().top ? { index: 0, empty } : null;
+    }
+    const tl = $('#timeline').getBoundingClientRect();
+    if (y < tl.top || y > tl.bottom + 40) return null; // 시간표 밖(위 상태 카드 등)에 놓으면 취소
     let k = rows.findIndex(r => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
     if (k === 0) k = 1; // 첫 줄(출발지) 앞에는 넣지 않음
     const after = k < 0 || !rows[k];
     return { index: after ? rows.length : +rows[k].dataset.i, row: after ? rows.at(-1) : rows[k], after };
   };
+  // 끄는 버튼 아래에 "어디에·몇 시쯤" 보여 줌
+  const hint = t => {
+    if (!t) return '여기엔 못 놓아요';
+    if (t.trash) return '놓으면 가볼 곳에서 지우기';
+    if (t.date) return t.date === S.selected ? `${dayLabel(t.date)} 알맞은 자리에` : `${dayLabel(t.date)}로 넘어가는 중…`;
+    if (t.empty) return `${dayLabel(S.selected)} 첫 일정으로`;
+    const prev = S.cur.sched[t.index - 1];
+    return `${t.index + 1}번째${prev?.depart != null ? ` · ${fmtClock(prev.depart)} 이후` : ''}`;
+  };
   const moveGhost = (x, y) => {
     g.x = x; g.y = y;
-    g.ghost.style.transform = `translate(${x - 60}px, ${y - 46}px)`;
+    g.ghost.style.transform = `translate(${x - g.w / 2}px, ${y - g.h - 34}px)`;
     clearMarks();
     g.target = findTarget(x, y);
-    if (g.target?.tab) g.target.tab.classList.add('drop-tab');
-    else if (g.target?.row) g.target.row.classList.add(g.target.after ? 'drop-after' : 'drop-before');
+    const t = g.target;
+    trash?.classList.toggle('hot', !!t?.trash);
+    if (t?.tab) t.tab.classList.add('drop-tab');
+    else if (t?.empty) t.empty.classList.add('drop-in');
+    else if (t?.row) t.row.classList.add(t.after ? 'drop-after' : 'drop-before');
+    // 날짜 탭에 잠깐 대고 있으면 그 날 시간표로 넘어감 (손가락은 그대로 끌면서 자리 고르기)
+    if (t?.date && t.date !== S.selected) {
+      if (g.spring?.date !== t.date) {
+        clearTimeout(g.spring?.timer);
+        const date = t.date;
+        g.spring = { date, timer: setTimeout(() => { if (!g) return; g.spring = null; selectDay(date, true); navigator.vibrate?.(15); moveGhost(g.x, g.y); }, 450) };
+      }
+    } else if (g.spring) { clearTimeout(g.spring.timer); g.spring = null; }
+    g.tip.textContent = hint(t);
   };
   tray.addEventListener('pointerdown', e => {
-    const card = e.target.closest('.ft-card');
+    const card = e.target.closest('.bub');
     if (!card || g) return;
     const fav = S.favs.find(f => f.id === card.dataset.fid);
     press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
       press = null;
       const ghost = card.cloneNode(true);
-      ghost.classList.add('ft-ghost');
+      ghost.classList.add('bub-ghost'); ghost.classList.remove('used');
+      const tip = document.createElement('em');
+      tip.className = 'gh-tip';
+      ghost.append(tip);
       document.body.append(ghost);
-      g = { fav, ghost, card, x: e.clientX, y: e.clientY, target: null };
+      g = { fav, ghost, tip, card, x: e.clientX, y: e.clientY, target: null, w: ghost.offsetWidth, h: card.offsetHeight };
       card.classList.add('lifted');
+      tray.classList.add('folded'); // 끄는 동안 서랍은 아래로 접어서 시간표 전체를 놓을 자리로
+      trash?.classList.add('show');
       try { card.setPointerCapture(e.pointerId); } catch { /* 일부 브라우저 */ }
       navigator.vibrate?.(30);
       moveGhost(e.clientX, e.clientY);
@@ -942,31 +1041,35 @@ function setupTrayDrag(tray) {
     }, 350) };
   });
   tray.addEventListener('pointermove', e => {
-    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; } // 그냥 옆으로 넘기기
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; } // 그냥 목록 넘기기
     if (g) moveGhost(e.clientX, e.clientY);
   });
   const end = () => {
     if (press) { clearTimeout(press.timer); press = null; }
     if (!g) return;
     const { fav, ghost, card, target } = g;
+    clearTimeout(g.spring?.timer);
     g = null; cancelAnimationFrame(raf);
-    ghost.remove(); card.classList.remove('lifted'); clearMarks();
+    ghost.remove(); card.classList.remove('lifted'); tray.classList.remove('folded'); clearMarks();
+    trash?.classList.remove('show', 'hot');
     S.dragJustEnded = Date.now();
-    if (!target) return;
-    const draft = favDraft(fav);
-    if (target.date) {
-      if (target.date !== S.selected) selectDay(target.date, true);
-      openEditor(null, null, { draft, autoIndex: true });
-    } else openEditor(target.index, null, { draft });
+    if (!target || !fav) return;
+    if (target.trash) {
+      S.favs = S.favs.filter(f => f !== fav); saveFavs(); renderTray();
+      toast(`🗑 ${fav.place} 가볼 곳에서 뺐어요`, 5000, { label: '되돌리기', fn: () => { S.favs.push(fav); saveFavs(); rerenderKeep(); } });
+      return;
+    }
+    placeNew(target.date || S.selected, target.date ? null : target.index, fav);
   };
   tray.addEventListener('pointerup', end);
   tray.addEventListener('pointercancel', end);
   tray.addEventListener('touchmove', e => { if (g && e.cancelable) e.preventDefault(); }, { passive: false });
   tray.addEventListener('contextmenu', e => { if (g || press) e.preventDefault(); });
+  tray.addEventListener('input', e => { if (e.target.id === 'wishIn') fitWishBox(); });
 }
 
 // 즐겨찾기 → 새 일정 초안 (시간은 비워 둠: 예약이면 수정 창에서 시간을 정하면 됨)
-const favDraft = f => ({ ...blankPlace(), place: f.place, address: f.address || '', lat: f.lat, lng: f.lng, time: null, stay: 60, mode: 'TRANSIT', memo: '', notes: [] });
+const favDraft = f => ({ ...blankPlace(), place: f.place, address: f.address || '', lat: f.lat ?? null, lng: f.lng ?? null, time: null, stay: 60, mode: 'TRANSIT', memo: '', notes: [] });
 
 // ---------- 아직 여기 있어요 · 다시 맞추기 · 쉬기 ----------
 S.rest = store.get('tg.rest', null); // { date, until(ms) } 또는 { date, day: true }
@@ -1220,9 +1323,21 @@ function renderTimeline() {
     </div>${gapsHtml(gaps[i], i)}`;
   }).join('');
   const doneCount = states.filter(s => s === 'done' || s === 'skip').length;
+  const qa = $('#qaIn'), qaKeep = qa && { v: qa.value, f: document.activeElement === qa }; // 적는 중에 화면이 새로 그려져도 글자 유지
   el.innerHTML = `${dayHeaderHtml(d, doneCount)}<div class="rows ${simple ? 'simple' : ''}">${rows}</div>
-    <button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>
+    ${S.quickAdd ? `<div class="quick-add"><input id="qaIn" placeholder="장소 이름만 적고 추가" enterkeyhint="done" autocomplete="off"><button data-act="qaSave">추가</button></div>
+      <div class="qa-more muted small"><span>자세한 건 추가한 뒤 눌러서 정해요</span><span><button data-act="qaSearch">🔎 검색해서 넣기</button><button data-act="qaClose">닫기</button></span></div>`
+      : `<button class="add-btn" data-act="addPlace" data-i="${n}">＋ 장소 추가</button>`}
     ${dayNotesHtml(d)}`;
+  if (qaKeep && $('#qaIn')) { $('#qaIn').value = qaKeep.v; if (qaKeep.f) $('#qaIn').focus(); }
+}
+function qaSave() {
+  const inp = $('#qaIn'), names = splitWishes(inp?.value);
+  if (!names.length) { inp?.focus(); return; }
+  inp.value = '';
+  const done = names.filter(place => placeNew(S.selected, null, { place }, names.length > 1));
+  if (names.length > 1 && done.length) toast(`✓ ${done.length}곳 넣었어요 · 눌러서 시간·메모 정하기`);
+  $('#qaIn')?.focus();
 }
 
 // 식사·여유 시간 추천 칸 (점선)
@@ -3497,7 +3612,11 @@ async function act(name, el) {
     }
     case 'pickDate': closeSheet(); selectDay(el.dataset.date, true); break;
     case 'goDay': selectDay(el.dataset.date, true); break;
-    case 'addPlace': openEditor(i); break;
+    case 'addPlace': if (d?.items.length) { S.quickAdd = true; renderTimeline(); $('#qaIn')?.focus(); } else openEditor(i); break;
+    case 'qaSave': qaSave(); break;
+    case 'qaClose': S.quickAdd = false; renderTimeline(); break;
+    case 'qaSearch': { const q = $('#qaIn')?.value.trim(); S.quickAdd = false; openEditor(d?.items.length || 0); if (q && S.sheet?.type === 'edit') { S.sheet.query = q; renderSheet(); } break; }
+    case 'wishAdd': wishAdd(); break;
     case 'editPlace': openEditor(i, d.items[i].id); break;
     case 'delPlace': deletePlace(d, el.dataset.id ? d.items.findIndex(x => x.id === el.dataset.id) : i); break;
     case 'moveUp': movePlace(d, i, -1); break;
@@ -3720,6 +3839,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'edQuery') { e.preventDefault(); edSearch('dest'); }
+  if (e.key === 'Enter' && e.target.id === 'qaIn' && !e.isComposing) { e.preventDefault(); qaSave(); }
   if (e.key === 'Enter' && e.target.id === 'orQuery') { e.preventDefault(); edSearch('origin'); }
 });
 

@@ -555,7 +555,7 @@ button.progress { font: inherit; font-size: 12px; font-weight: 700; cursor: poin
 .fav-res { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; margin-bottom: 6px; border: 1px dashed var(--line); border-radius: 12px; }
 .fav-res > div { min-width: 0; }
 .fav-cats { margin: 6px 0 8px; }
-.tray-open { width: 100%; text-align: left; padding: 11px 12px; margin-bottom: 6px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); color: var(--text); font-weight: 800; }
+.tray-btn { width: 100%; text-align: left; padding: 11px 12px; margin-bottom: 6px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); color: var(--text); font-weight: 800; }
 .fav-group { margin: 14px 2px 6px; font-size: 13px; font-weight: 800; color: var(--muted); }
 .fav-card, .mem-card { padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
 .fav-top, .mem-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
@@ -586,20 +586,49 @@ button.progress { font: inherit; font-size: 12px; font-weight: 700; cursor: poin
 .mm-ph.on { height: 120px; }
 
 /* 즐겨찾기 서랍 (시간표 아래) */
-#favTray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; padding: 8px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -10px 30px rgba(0,0,0,.18); border-radius: 18px 18px 0 0; }
-body.tray-open .list-view { padding-bottom: 190px; }
-.ft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 6px; font-size: 13px; }
+#favTray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -10px 30px rgba(17,34,51,.16); border-radius: 20px 20px 0 0; }
+body.tray-open .list-view { padding-bottom: calc(var(--tray-h, 190px) + 16px); }
+#favTray { transition: transform .25s cubic-bezier(.32,.72,0,1); }
+#favTray.folded { transform: translateY(calc(100% - 46px - env(safe-area-inset-bottom))); }
+.ft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 8px 16px; font-size: 15px; }
+.ft-tools { display: flex; align-items: center; gap: 4px; }
+.ft-tools button:not(.x) { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
 .ft-head .x { border: 0; background: transparent; color: var(--muted); font-size: 18px; }
+/* 마구 적는 칸 */
+.ft-add { display: flex; gap: 8px; align-items: flex-end; padding: 0 12px 10px; }
+.ft-add textarea { flex: 1; min-height: 42px; max-height: 100px; resize: none; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--text); font: inherit; font-size: 15px; line-height: 1.4; }
+.ft-add textarea:focus { outline: none; border-color: var(--rule); }
+.ft-add button { flex: none; height: 42px; padding: 0 16px; border: 0; border-radius: 14px; background: var(--accent); color: var(--on-accent); font-weight: 800; }
 .ft-cats { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; }
 .ft-cats button { flex: none; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; }
 .ft-cats button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.ft-list { display: flex; gap: 8px; overflow-x: auto; padding: 2px 12px 4px; touch-action: pan-x; }
-.ft-card { flex: none; width: 120px; height: 84px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); display: flex; flex-direction: column; gap: 2px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.ft-card span { font-size: 18px; }
-.ft-card b { font-size: 13px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ft-card small { margin-top: auto; font-size: 11px; color: var(--muted); }
-.ft-card.lifted { opacity: .35; }
-.ft-ghost { position: fixed; left: 0; top: 0; z-index: 3500; pointer-events: none; box-shadow: 0 16px 40px rgba(0,0,0,.35); border-color: var(--accent); background: var(--card); }
+/* 가볼 곳 버블: 줄줄이 두 개씩, 길쭉하고 살짝 볼록한 알약 모양 */
+.ft-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 30vh; overflow-y: auto; padding: 2px 12px 6px; touch-action: pan-y; }
+.ft-empty { padding: 6px 4px 10px; }
+.bub { flex: 1 1 calc(50% - 8px); min-width: 0; display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card) 55%, #fff) 0%, var(--card) 48%, color-mix(in srgb, var(--card-2) 70%, var(--card)) 100%);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.85), inset 0 -2px 5px rgba(17,34,51,.06), 0 3px 10px rgba(17,34,51,.08);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: grab; transition: transform .15s, opacity .15s; }
+.bub:active { transform: scale(.97); }
+.bub-ic { flex: none; font-size: 16px; }
+.bub b { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bub small { flex: none; font-size: 11px; font-weight: 700; color: var(--muted); }
+.bub.used { opacity: .55; }
+.bub.lifted { opacity: .3; }
+.bub-ghost { position: fixed; left: 0; top: 0; z-index: 3500; pointer-events: none; flex: none; max-width: 70vw; transform-origin: center; border-color: var(--rule);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.85), 0 18px 40px rgba(17,34,51,.3); scale: 1.06; overflow: visible; }
+.gh-tip { position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 12px; font-weight: 800;
+  padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 12px rgba(17,34,51,.25); }
+.ft-tip { padding: 4px 16px 0; font-size: 12px; color: var(--muted); }
+.empty.drop-in { outline: 2.5px dashed var(--accent); outline-offset: 4px; }
+/* 시간표 아래: 장소 이름만 적고 추가 */
+.quick-add { display: flex; gap: 8px; margin-top: 14px; }
+.quick-add input { flex: 1; min-width: 0; padding: 13px 14px; border: 1.5px solid var(--rule); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-size: 16px; }
+.quick-add input:focus { outline: none; border-color: var(--accent); }
+.quick-add button { flex: none; padding: 0 18px; border: 0; border-radius: 14px; background: var(--accent); color: var(--on-accent); font-weight: 800; }
+.qa-more { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 2px 0; }
+.qa-more button { border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 700; padding: 4px 6px; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
 
 /* ---------- 처음 화면: 여행 떠나기 → 기간 → 일정 → D-day ---------- */
 .home { position: fixed; inset: 0; z-index: 950; background: var(--bg); overflow-y: auto; display: flex; flex-direction: column;

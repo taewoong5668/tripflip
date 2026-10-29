@@ -1,5 +1,5 @@
 // 즐겨찾기·추억(다녀온 곳) 데이터: 화면과 상관없는 계산만 (npm test로 점검)
-import { isHotel, isFlight } from './parser.js?v=202610291421';
+import { isHotel, isFlight } from './parser.js?v=202610291432';
 
 export const FAV_CATS = [
   { id: 'food', icon: '🍽', label: '맛집' },
@@ -20,6 +20,16 @@ export function guessCat(name = '', hint = '') {
   if (/restaurant|레스토랑|식당|grill|그릴|\bbar\b|pub|펍|맛집|bistro|비스트로|kitchen|pizza|피자|burger|버거|sushi|스시|ramen|라멘|bbq|바베큐|steak|스테이크|seafood|해산물|diner|brunch|브런치|eatery|food|음식|야식|술집|izakaya|이자카야/.test(t)) return 'food';
   if (/museum|박물관|미술관|gallery|갤러리|park|공원|beach|해변|비치|bridge|브릿지|다리|tower|타워|opera|오페라|garden|가든|zoo|동물원|aquarium|아쿠아리움|church|성당|교회|temple|사원|절\b|palace|궁|lookout|전망|harbou?r|하버|island|섬|cathedral|monument|기념|castle|성\b|view|뷰/.test(t)) return 'sight';
   return 'etc';
+}
+
+// 가볼 곳에 마구 적은 글 → 장소 이름들 (줄바꿈·쉼표로 나눔, 앞 번호·기호와 겹친 이름은 정리)
+export function splitWishes(text = '') {
+  const out = [];
+  for (const raw of String(text).split(/[\n,，、;]+/)) {
+    const t = raw.replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '').trim();
+    if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
 }
 
 const near = (a, b, m = 80) => {
