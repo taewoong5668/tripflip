@@ -164,6 +164,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dt-acts button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: var(--card-2); border-radius: 12px; padding: 9px 12px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .dt-memo .pre { margin: 2px 0 10px; line-height: 1.55; }
+/* 📄 일정만 보기: 메모가 중심 */
+.dt-memo.big { border-left: 4px solid var(--accent); }
+.dt-memo.big .pre { font-size: 16.5px; line-height: 1.65; }
+.dt-memo.big .dt-memo-empty { margin: 2px 0 12px; font-size: 14px; }
+.dt-memo.big button.primary { width: 100%; padding: 12px; border: 0; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 800; }
+.bubble.has-memo { padding-top: 10px; padding-bottom: 10px; }
+.bubble .b-name, .bubble .b-memo { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bubble .b-memo { margin-top: 2px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.pk-memo.big { color: var(--text); font-size: 15px; font-weight: 600; -webkit-line-clamp: 6; }
+.check.paper-opt { align-items: flex-start; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 14px; }
 .dt-nav { display: flex; justify-content: space-between; gap: 10px; margin: 4px 0 8px; }
 .dt-nav button { border: 0; background: transparent; color: var(--accent); font-weight: 700; font-size: 13px; padding: 8px 4px; max-width: 48%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dt-pull { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 18px 0 10px; }

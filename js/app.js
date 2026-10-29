@@ -1,17 +1,17 @@
-import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292013';
-import { arrivalGuide } from './guides.js?v=202610292013';
+import { readPlanFile, isHotel, isFlight } from './parser.js?v=202610292022';
+import { arrivalGuide } from './guides.js?v=202610292022';
 import {
   MODES, computeSchedule, estimateMin, haversine, fmtClock, clockOf, fmtDur, fmtDist, fmtCountdown, todayStr, dayStart, dayLabel,
-} from './schedule.js?v=202610292013';
-import { createMap } from './map.js?v=202610292013';
-import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292013';
-import { PROXY_URL } from './config.js?v=202610292013';
-import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292013';
-import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292013';
-import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292013';
-import { tzOf } from './tz.js?v=202610292013';
-import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292013';
-import { findCodes, codeName } from './codes.js?v=202610292013';
+} from './schedule.js?v=202610292022';
+import { createMap } from './map.js?v=202610292022';
+import { routeFor, inKorea, searchPlaces, searchPlacesFree, reverseFree, navUrl, placeUrl, nearbyPlaces, nearbyPlacesFree, VIA_PROXY, setInvite, checkInvite, proxyHooks } from './google.js?v=202610292022';
+import { PROXY_URL } from './config.js?v=202610292022';
+import { isNative, Geo, Alarms, webNotify, beep, openExternal, onBackButton, exitApp, saveOrShare } from './device.js?v=202610292022';
+import { saveFile, getFile, putFile, deleteFile, isPdf, renderPdf } from './files.js?v=202610292022';
+import { FAV_CATS, catOf, guessCat, findFav, collectVisits, memList, mergeBackup, splitWishes } from './keep.js?v=202610292022';
+import { tzOf } from './tz.js?v=202610292022';
+import { tripRange, tripStage, fmtRange, fmtNights, monthCells, daysBetween } from './home.js?v=202610292022';
+import { findCodes, codeName } from './codes.js?v=202610292022';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,9 +22,11 @@ const store = {
 const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const emptyPlan = () => ({ title: '내 여행', days: [] });
 
-const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false, detailList: false };
+const DEFAULTS = { apiKey: '', radius: 50, lead: 10, buffer: 5, sim: false, invite: '', inviteAsked: false, detailList: false, paper: false };
 // 구글 검색·경로에 쓸 키: 내가 넣은 키가 있으면 그것, 없으면 버블트립 중간 서버(초대 코드가 있을 때), 둘 다 없으면 '' (무료 지도)
 const boardMode = () => !S.settings.detailList; // 기본: 버블 보드 (순서 중심, 시간·알람·제한 없음)
+// 📄 일정만 보기: 종이 일정표처럼. 내 위치(GPS)·장소 위치 찾기·경로·지도·거리를 모두 끄고 메모를 크게
+const paperMode = () => !!S.settings.paper;
 const gkey = () => S.settings.apiKey || (PROXY_URL && S.settings.invite ? VIA_PROXY : '');
 const S = {
   settings: (s => (s.radius === 100 ? { ...s, radius: 50 } : s))({ ...DEFAULTS, ...store.get('tg.settings', {}) }), // 예전 기본값 100m → 50m
@@ -240,6 +242,7 @@ function renderAll(fit) {
 
 function renderHeader() {
   $('#tripTitle').textContent = S.plan.title || '내 여행';
+  $('#btnView').hidden = paperMode(); // 일정만 보기: 지도 버튼 없음
   const date = S.selected;
   if (!date) { $('#dayTitle').textContent = ''; return; }
   const [, m, dd] = date.split('-').map(Number);
@@ -1358,7 +1361,7 @@ const addAreaHtml = n => (S.quickAdd ? `<div class="quick-add"><input id="qaIn" 
 const bubDist = it => { if (!S.pos || !hasPos(it)) return ''; const m = haversine(S.pos, it); return m < S.settings.radius ? '여기' : fmtDist(m); };
 const BOARD_SEC = { am: '오전 AM', pm: '오후 PM', late: '새벽 (다음 날)' };
 function boardHtml(d, date) {
-  const items = d?.items || [], n = items.length, sched = S.cur.sched;
+  const items = d?.items || [], n = items.length, sched = S.cur.sched, paper = paperMode();
   const ph = n && isLive() ? phase(d) : null;
   const states = items.map((_, i) => itemState(d, i, ph));
   const today0 = todayStr(), today = date === today0;
@@ -1378,12 +1381,13 @@ function boardHtml(d, date) {
     if (past.includes(i) && !showPast) return '';
     const s = sched[i], t = s?.arrive ?? s?.depart;
     const sc = t == null ? sec || 'am' : t >= 1440 ? 'late' : t >= 720 ? 'pm' : 'am';
-    const label = sc !== sec ? `<div class="ampm">${BOARD_SEC[sc]}</div>` : '';
+    const label = sc !== sec && !paper ? `<div class="ampm">${BOARD_SEC[sc]}</div>` : ''; // 일정만 보기: 위치가 없어 시각을 어림할 수 없으니 오전·오후 없이 순서만
     sec = sc;
     const tag = st === 'here' ? '<span class="b-tag now">지금</span>' : st === 'next' ? '<span class="b-tag next">다음</span>' : '';
-    const dist = !done && date >= today0 && hasPos(it) ? `<span class="b-dist" data-bd="${i}">${bubDist(it)}</span>` : '';
-    return `<div class="bslot" data-i="${i}">${label}<div class="bubble ${st}" data-act="bubTap" data-i="${i}" style="--c:${placeColor(i, st)}">
-      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${dist}${hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
+    const dist = !paper && !done && date >= today0 && hasPos(it) ? `<span class="b-dist" data-bd="${i}">${bubDist(it)}</span>` : '';
+    const memo = paper && it.memo ? `<small class="b-memo">📝 ${esc(it.memo.split('\n')[0])}</small>` : ''; // 일정만 보기: 이름 아래 메모 첫 줄
+    return `<div class="bslot" data-i="${i}">${label}<div class="bubble ${st}${memo ? ' has-memo' : ''}" data-act="bubTap" data-i="${i}" style="--c:${placeColor(i, st)}">
+      <span class="b-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${memo ? `<span class="b-name">${esc(it.place)}</span>${memo}` : esc(it.place)}</b>${tag}${it.files?.length ? '<span class="b-ic">📎</span>' : ''}${dist}${paper || hasPos(it) ? '' : '<span class="b-ic warn" title="위치 없음">⚠</span>'}</div></div>`;
   }).join('');
   const body = n ? slots : '<div class="board-empty">아래 <b>＋</b>로 적거나, ☆ <b>가볼 곳</b> 버블을 꾹 눌러 여기로 끌어 오세요</div>';
   return `<div class="board-head"><b>${dayLabel(date)}</b><span class="muted small">${n ? `${n}곳 · 꾹 눌러 끌면 순서 바꾸기` : ''}</span></div>
@@ -1688,21 +1692,23 @@ function peekHtml(d, i) {
   const ph = isLive() ? phase(d) : null, state = itemState(d, i, ph), done = state === 'done' || state === 'skip';
   const fixed = isFixedItem(d, i), first = i === 0 && n > 1 && !s.proc;
   const line = (icon, html) => `<div class="pk-line"><span>${icon}</span><span>${html}</span></div>`;
-  const lines = [];
+  const lines = [], paper = paperMode();
   if (done) lines.push(line('✓', state === 'skip' ? '건너뜀' : '다녀왔어요'));
   if (s.proc) lines.push(line('✈️', `${fmtClock(s.arrive)} 착륙 · 입국 절차 약 ${fmtDur(s.proc)}`));
   else if (first) { if (!boardMode()) lines.push(line('🚩', `${fmtClock(s.depart)}쯤 출발`)); } // 버블 보드에선 출발·머무는 시간 없이 예약 시각만
   else if (fixed) lines.push(line('🕒', `<b>${fmtClock(it.time)} 예약</b>`));
-  else if (s.arrive != null) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 && !boardMode() ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
+  else if (s.arrive != null && !paper) lines.push(line('🕒', `${fmtClock(s.arrive)}쯤 도착${i < n - 1 && !boardMode() ? ` · ${fmtClock(s.depart)}쯤 출발` : ''}${it.stay && !boardMode() ? ` <span class="muted">(${fmtDur(it.stay)} 머무름)</span>` : ''}`));
   if (s.late > 0 && !done && !boardMode()) lines.push(line('⚠️', `<span class="late-tag">${fmtDur(s.late)} 늦음</span>`));
-  if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
-  lines.push(line('📍', it.address ? esc(it.address) : hasPos(it) ? '<span class="muted">지도 위치 있음</span>' : '<span class="late-tag">위치 없음</span>'));
-  if (it.memo) lines.push(line('📝', `<span class="pk-memo">${esc(it.memo)}</span>`));
+  if (paper) { if (it.memo) lines.unshift(line('📝', `<span class="pk-memo big">${esc(it.memo)}</span>`)); }
+  else if (i > 0 && l && m) lines.push(line(m.icon, `오는 길 ${fmtDur(l.dur)}${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''} <span class="muted">${m.label}</span>`));
+  if (paper) { if (it.address) lines.push(line('📍', esc(it.address))); }
+  else lines.push(line('📍', it.address ? esc(it.address) : hasPos(it) ? '<span class="muted">지도 위치 있음</span>' : '<span class="late-tag">위치 없음</span>'));
+  if (it.memo && !paper) lines.push(line('📝', `<span class="pk-memo">${esc(it.memo)}</span>`));
   if (it.files?.length) lines.push(line('📎', `첨부 ${it.files.length}개`));
   return `<div class="pk-card" data-act="peekOpen" data-i="${i}" style="--c:${placeColor(i, state)}">
       <div class="pk-top"><span class="row-num ${i === 0 ? 'sq' : ''}">${done ? '✓' : labelOf(d, i)}</span><b>${esc(it.place)}</b></div>
       <div class="pk-lines">${lines.join('')}</div>
-      ${boardMode() ? `<div class="pk-acts">${hasPos(it) ? `<button data-act="nav" data-i="${i}">🧭 길찾기</button>` : `<button data-act="fixPlace" data-i="${i}">📍 위치 고르기</button>`}<button data-act="peekOpen" data-i="${i}">✏️ 자세히</button>${done ? '' : `<button data-act="peekDone" data-i="${i}">✓ 다녀옴</button>`}</div>`
+      ${boardMode() ? `<div class="pk-acts">${paper ? `<button data-act="memoEdit" data-i="${i}">📝 ${it.memo ? '메모 고치기' : '메모 적기'}</button>` : hasPos(it) ? `<button data-act="nav" data-i="${i}">🧭 길찾기</button>` : `<button data-act="fixPlace" data-i="${i}">📍 위치 고르기</button>`}<button data-act="peekOpen" data-i="${i}">✏️ 자세히</button>${done ? '' : `<button data-act="peekDone" data-i="${i}">✓ 다녀옴</button>`}</div>`
         : '<div class="pk-hint">눌러서 자세히 보기 · 누른 채로 끌면 순서 바꾸기</div>'}
     </div>`;
 }
@@ -1805,7 +1811,12 @@ function renderDetail() {
   const state = itemState(d, i, ph), color = placeColor(i, state), p = (S.progress[d.date] || {})[it.id] || {};
   const free = i < n - 1 && s.stayEff > 0 ? s.stayEff : 0;
   const stateTag = { done: '완료한 일정', skip: '건너뛴 일정', here: '지금 여기', next: '다음 목적지' }[state] || '';
-  const prev = d.items[i - 1], l = legs[i], m = MODES[it.mode], bm = boardMode();
+  const prev = d.items[i - 1], l = legs[i], m = MODES[it.mode], bm = boardMode(), paper = paperMode();
+  const memoCard = `<div class="dt-card dt-memo${paper ? ' big' : ''}">
+      <div class="note-label">📝 메모</div>
+      ${it.memo ? `<div class="pre selectable">${esc(it.memo)}</div>` : paper ? '<div class="muted dt-memo-empty">예약 번호, 준비물, 꼭 할 일 등을 적어 두세요</div>' : ''}
+      <button class="${paper ? 'primary' : 'chip-btn'}" data-act="memoEdit" data-i="${i}">${it.memo ? '✏️ 메모 고치기' : '＋ 메모 추가'}</button>
+    </div>`;
   const warns = [];
   if (s.late) warns.push(`예약 시각보다 ${s.late}분 늦어요`);
   el.innerHTML = `<div class="dt-scroll">
@@ -1827,20 +1838,16 @@ function renderDetail() {
       <div><span>출발</span><b>${i < n - 1 ? fmtClock(s.depart) : '—'}</b>${p.dep ? `<em>실제 ${clockAt(p.dep, d.date)}</em>` : ''}</div>
     </div>`}
     ${warns.map(w => `<div class="dt-warn">⚠ ${esc(w)}</div>`).join('')}
-    ${hasPos(it) ? '' : `<button class="dt-warn fix" data-act="fixPlace" data-i="${i}">⚠ 위치를 찾지 못했어요 · <u>눌러서 지도에서 찾기</u></button>`}
-    <div class="dt-card"><div class="dt-dist" data-dist="${i}">📍 내 위치를 확인하는 중…</div></div>
-    ${i > 0 ? `<div class="dt-card">
+    ${paper ? memoCard : `${hasPos(it) ? '' : `<button class="dt-warn fix" data-act="fixPlace" data-i="${i}">⚠ 위치를 찾지 못했어요 · <u>눌러서 지도에서 찾기</u></button>`}
+    <div class="dt-card"><div class="dt-dist" data-dist="${i}">📍 내 위치를 확인하는 중…</div></div>`}
+    ${i > 0 && !paper ? `<div class="dt-card">
       <div class="note-label">가는 방법 · ${esc(prevStop(d, i).place)}에서</div>
       <div class="dt-leg">${m.icon} <b>${m.label} ${fmtDur(l.dur)}</b>${l.dist != null ? ` · ${fmtDist(l.dist)}` : ''}${l.est ? '<span class="est">추정</span>' : ''}</div>
       ${it.mode === 'TRANSIT' ? rideOptionsHtml(l, d.date) : ''}
       <div class="st-actions"><button class="primary" data-act="nav" data-i="${i}">🗺️ 길찾기</button></div>
     </div>` : ''}
     ${(it.notes || []).length ? `<div class="dt-card">${notesHtml(it, i)}</div>` : ''}
-    <div class="dt-card dt-memo">
-      <div class="note-label">📝 메모</div>
-      ${it.memo ? `<div class="pre selectable">${esc(it.memo)}</div>` : ''}
-      <button class="chip-btn" data-act="memoEdit" data-i="${i}">${it.memo ? '✏️ 메모 고치기' : '＋ 메모 추가'}</button>
-    </div>
+    ${paper ? '' : memoCard}
     <div class="dt-card">
       <div class="note-label">📎 첨부 파일 <span class="muted small">· 바우처, 예약 티켓 사진이나 PDF</span></div>
       <div class="att-grid" data-att="${i}"></div>
@@ -1855,7 +1862,7 @@ function renderDetail() {
       ${i > 0 ? `<button data-act="openDetail" data-i="${i - 1}" data-swap="1">‹ ${esc(prev.place)}</button>` : '<span></span>'}
       ${i < n - 1 ? `<button data-act="openDetail" data-i="${i + 1}" data-swap="1">${esc(d.items[i + 1].place)} ›</button>` : ''}
     </div>
-    <button class="dt-pull" data-act="detailMap"><span class="grab"></span>위로 밀거나 눌러서 지도 보기</button>
+    ${paper ? '' : '<button class="dt-pull" data-act="detailMap"><span class="grab"></span>위로 밀거나 눌러서 지도 보기</button>'}
   </div>`;
   updateDistances();
   fillAttachments(i);
@@ -2192,6 +2199,7 @@ function popLayer() {
 }
 
 function openMap(focus, enter = 'right') {
+  if (paperMode()) return;
   S.focus = focus ?? null;
   pushLayer('map', enter);
 }
@@ -2430,6 +2438,25 @@ async function updateLiveRoute(force) {
   drawLines();
 }
 
+// 내 위치 따라가기 (📄 일정만 보기에선 끔: 위치 권한도 묻지 않음)
+let gpsStop = null;
+function setGps(on) {
+  if (!on) { gpsStop?.then(stop => stop?.()); gpsStop = null; return; }
+  if (gpsStop) return;
+  gpsStop = Geo.watch(
+    p => { if (!S.settings.sim && !paperMode()) onPos(p); },
+    err => { if (err?.code === 1 || /denied|permission/i.test(err?.message || '')) toast('위치 권한이 꺼져 있어요. 설정에서 위치를 허용해 주세요', 6000); },
+  );
+}
+// 설정에서 일정만 보기를 켜고 끌 때: 켜면 위치를 버리고 지도를 닫음, 끄면 위치·장소 찾기·경로를 다시 시작
+function applyPaper() {
+  const on = paperMode();
+  setGps(!on);
+  if (on) {
+    S.pos = null; S.live = null;
+    if (S.stack.includes('map')) { S.stack = S.stack.filter(x => x !== 'map'); applyLayers(); }
+  } else { geocodeMissing(); prefetchLegs(); }
+}
 function onPos(p) {
   S.pos = p;
   // 다음에 켤 때 바로 쓰도록 마지막 위치 기억 (1분에 한 번만 저장)
@@ -3118,7 +3145,7 @@ function edSave() {
   const sh = S.sheet, dr = sh.draft;
   if (!dr.place) { toast(sh.trip ? '도착지를 골라 주세요' : '장소 이름을 적어 주세요'); return; }
   if (sh.trip && !originOf(sh)) { toast('내 위치를 아직 못 찾았어요. 출발지를 검색해서 골라 주세요', 4000); return; }
-  if (!hasPos(dr) && !sh.id && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return; // 이미 있던 곳(날짜만 옮기기 등)은 묻지 않음
+  if (!hasPos(dr) && !sh.id && !paperMode() && !confirm('위치를 고르지 않았어요. 위치 없이 저장할까요? (지도와 거리 계산에서 빠져요)')) return; // 이미 있던 곳(날짜만 옮기기 등)은 묻지 않음
   if (!sh.id && !sh.trip && sh.moveTo && sh.moveTo !== sh.date) { sh.date = sh.moveTo; sh.autoIndex = true; } // 새 일정을 다른 날에
   const d = ensureDay(sh.date);
   const item = {
@@ -3279,6 +3306,7 @@ function settingsHtml() {
   const s = S.settings;
   return `<div class="sheet-head"><b>설정</b><button class="x" data-act="closeSheet">✕</button></div>
     <div class="reset-box"><div><b>🧪 시험용</b><div class="muted small">일정을 모두 지우고 처음 화면부터 다시 해 볼 때</div></div><button data-act="resetAsk">🗑 모든 일정 초기화</button></div>
+    <label class="check paper-opt"><input id="setPaper" type="checkbox" ${s.paper ? 'checked' : ''}> <span><b>📄 일정만 보기</b><br><span class="muted small">종이 일정표처럼 날짜·순서·메모만. 내 위치·지도·거리·장소 위치 찾기를 끄고, 메모를 크게 보여 줘요</span></span></label>
     <label class="field">구글맵 API 키<input id="setKey" type="password" autocomplete="off" value="${esc(s.apiKey)}" placeholder="AIza…"></label>
     <div class="muted small">${PROXY_URL
       ? '비워 두어도 버블트립 서버를 통해 구글 장소 검색·추천·경로를 쓸 수 있어요. 내 키를 넣으면 지도 화면도 구글맵으로 바뀌어요.'
@@ -3310,12 +3338,15 @@ function saveSettings() {
     buffer: Math.min(60, Math.max(0, num('#setBuffer', 5))),
     sim: $('#setSim').checked,
     detailList: $('#setDetail').checked,
+    paper: $('#setPaper').checked,
   };
   store.set('tg.settings', S.settings);
   if (old.apiKey !== S.settings.apiKey) { location.reload(); return; }
   closeSheet();
+  const paperChanged = !!old.paper !== S.settings.paper;
+  if (paperChanged) applyPaper();
   recompute(); renderAll(false); scheduleAlarms(true);
-  toast('저장했어요');
+  toast(paperChanged ? (S.settings.paper ? '📄 일정만 보기로 바꿨어요' : '🗺️ 위치·지도를 다시 켰어요') : '저장했어요');
 }
 
 // ---------- 알람 ----------
@@ -3435,7 +3466,7 @@ function openMemo(i) {
 const memoItem = sh => S.plan.days.find(x => x.date === sh.date)?.items.find(x => x.id === sh.id);
 function memoHtml(sh) {
   return `<div class="sheet-head"><div><div class="st-label">${esc(memoItem(sh)?.place || '')}</div><b>📝 메모</b></div><button class="x" data-act="closeSheet">✕</button></div>
-    <label class="field">메모<textarea id="memoIn" rows="5" placeholder="예: 예약 번호, 입장권은 2층 매표소, 꼭 먹어 볼 것">${esc(sh.value)}</textarea></label>
+    <label class="field">메모<textarea id="memoIn" rows="${paperMode() ? 9 : 5}" placeholder="예: 예약 번호, 입장권은 2층 매표소, 꼭 먹어 볼 것">${esc(sh.value)}</textarea></label>
     <div class="st-actions"><button class="primary" data-act="memoOk">저장</button><button data-act="closeSheet">취소</button></div>`;
 }
 function memoOk() {
@@ -3744,6 +3775,7 @@ function pickPlace(date, id) {
   edSearch('dest');
 }
 async function geocodeMissing() {
+  if (paperMode()) return; // 일정만 보기: 장소 위치를 찾지 않음
   // 찾는 중에 새 일정을 불러오면, 지금 것이 끝난 뒤 새 일정으로 한 번 더
   if (geocoding) { geocodeAgain = true; return; }
   geocoding = true;
@@ -3816,6 +3848,7 @@ let prefetchRun = 0;
 // 인터넷이 될 때 오늘·앞으로의 모든 날 경로를 미리 받아 둠 → 인터넷이 끊겨도 저장된 길·환승·내릴 역 안내
 // (예전에 받은 대중교통 경로에 내릴 역 위치가 없으면 한 번 다시 받음)
 async function prefetchLegs() {
+  if (paperMode()) return; // 일정만 보기: 경로를 받지 않음
   const key = gkey(), run = ++prefetchRun, t = todayStr();
   if (navigator.onLine === false) return;
   const days = [...new Set([curDay(), ...S.plan.days.filter(x => x.date >= t)].filter(Boolean))];
@@ -4095,7 +4128,7 @@ async function act(name, el) {
     case 'hmKind': S.home.kind = el.dataset.kind; S.home.step = 'dates'; renderHome(); paintRange(); openTripName('home'); break;
     case 'hmName': openTripName('home'); break;
     case 'tripNameOk': tripNameOk(); break;
-    case 'memoEdit': openMemo(i); break;
+    case 'memoEdit': closePeek(); openMemo(i); break;
     case 'memoOk': memoOk(); break;
     case 'hmDay': hmPickDay(el.dataset.date); break;
     case 'hmSE': if (el.dataset.w === 'e') S.home.pickEnd = !!S.home.start; else { S.home.pickEnd = false; S.home.keepEnd = true; } paintRange(); break;
@@ -4402,7 +4435,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   checkTimeZone(); ackWake();
   if (S.pos) detect();
-  Geo.once().then(p => { if (p && !S.settings.sim) onPos(p); });
+  if (!paperMode()) Geo.once().then(p => { if (p && !S.settings.sim) onPos(p); });
   scheduleAlarms(true); renderStatus();
 });
 
@@ -4483,11 +4516,8 @@ async function init() {
   // 지난번 위치(3시간 안)를 먼저 써 둠: 새 위치를 받기 전에도 내 주변 찾기 등이 바로 되게.
   // 오래된 위치라 도착 판정에는 쓰지 않음 (stale)
   const last = store.get('tg.pos', null);
-  if (last && Date.now() - last.ts < 3 * 3600000 && !S.pos) S.pos = { ...last, saved: true, stale: true };
-  Geo.watch(
-    p => { if (!S.settings.sim) onPos(p); },
-    err => { if (err?.code === 1 || /denied|permission/i.test(err?.message || '')) toast('위치 권한이 꺼져 있어요. 설정에서 위치를 허용해 주세요', 6000); },
-  );
+  if (last && Date.now() - last.ts < 3 * 3600000 && !S.pos && !paperMode()) S.pos = { ...last, saved: true, stale: true };
+  setGps(!paperMode());
 
   ackWake();
   setInvite(S.settings.invite);
